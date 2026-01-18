@@ -7,8 +7,20 @@ let cornerstoneTools: any = null
 
 export const loadCornerstone = async () => {
   if (!cornerstone) {
-    cornerstone = await import('cornerstone-core')
-    cornerstoneTools = await import('cornerstone-tools')
+    const cornerstoneModule = await import('cornerstone-core')
+    const toolsModule = await import('cornerstone-tools')
+    
+    // Handle default export or named export
+    cornerstone = cornerstoneModule.default || cornerstoneModule
+    cornerstoneTools = toolsModule.default || toolsModule
+    
+    // If still not found, try accessing the actual module
+    if (!cornerstone || Object.keys(cornerstone).length === 0) {
+      cornerstone = cornerstoneModule
+    }
+    if (!cornerstoneTools || Object.keys(cornerstoneTools).length === 0) {
+      cornerstoneTools = toolsModule
+    }
   }
   return { cornerstone, cornerstoneTools }
 }
@@ -186,22 +198,25 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
       }
       
       // Initialize cornerstone tools
-      // Different versions have different init signatures
-      if (tools && typeof tools.init === 'function') {
-        try {
-          // Try with cornerstone instance (older versions)
-          if (tools.init.length > 0) {
-            tools.init(cs)
-          } else {
-            // Newer versions might not need parameter
-            tools.init()
-          }
-        } catch (initError) {
-          console.warn('Tools init with parameter failed, trying without:', initError)
+      // Skip init if it causes errors - some versions don't require explicit init
+      // Tools will be initialized when needed in components
+      if (tools) {
+        // Try to initialize tools only if cornerstone is properly loaded
+        if (typeof tools.init === 'function' && cs) {
           try {
-            tools.init()
-          } catch (e) {
-            console.warn('Tools init failed:', e)
+            // Check if cornerstone has EVENTS (required by some tool versions)
+            if (cs.EVENTS || cs.default?.EVENTS) {
+              // Try with cornerstone instance
+              if (tools.init.length > 0) {
+                tools.init(cs)
+              } else {
+                tools.init()
+              }
+            }
+          } catch (initError) {
+            // Silently fail - tools might work without explicit init
+            // Some versions of cornerstone-tools don't require init
+            console.debug('Tools init skipped:', initError.message || initError)
           }
         }
         

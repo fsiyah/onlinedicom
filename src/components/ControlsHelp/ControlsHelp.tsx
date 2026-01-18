@@ -36,7 +36,7 @@ const ControlsHelp: React.FC = () => {
             </div>
             <div className="control-item">
               <span className="control-key">Right Click + Drag</span>
-              <span className="control-desc">Zoom In/Out</span>
+              <span className="control-desc">Zoom (Up = In, Down = Out)</span>
             </div>
             <div className="control-item">
               <span className="control-key">Middle Click + Drag</span>
@@ -45,6 +45,10 @@ const ControlsHelp: React.FC = () => {
             <div className="control-item">
               <span className="control-key">Mouse Wheel</span>
               <span className="control-desc">Navigate Slices (CT Series)</span>
+            </div>
+            <div className="control-item">
+              <span className="control-key">Right Click + Wheel</span>
+              <span className="control-desc">Zoom In/Out</span>
             </div>
           </div>
 
