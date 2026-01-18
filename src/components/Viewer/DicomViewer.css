@@ -1,55 +1,167 @@
+/* =========================
+   Root Viewer Container
+   ========================= */
 .dicom-viewer {
+  position: relative;
   width: 100%;
   height: 100%;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   background: #000;
+  overflow: hidden;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  user-select: none;
 }
 
+/* Empty state */
 .dicom-viewer.empty {
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
 }
 
+/* =========================
+   Cornerstone Element
+   ========================= */
 .cornerstone-element {
   width: 100%;
   height: 100%;
   outline: none;
+  cursor: crosshair;
 }
 
+/* Prevent browser focus outline */
+.cornerstone-element:focus {
+  outline: none;
+}
+
+/* =========================
+   Loading Overlay
+   ========================= */
 .loading-overlay {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.7);
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 20;
+
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 10;
 }
 
 .loading-spinner {
-  color: white;
-  font-size: 16px;
+  color: #fff;
+  font-size: 15px;
   font-weight: 500;
+  letter-spacing: 0.5px;
 }
 
+/* =========================
+   Series / Slice Info
+   ========================= */
 .series-info {
   position: absolute;
-  top: 16px;
-  right: 16px;
-  background: rgba(0, 0, 0, 0.7);
-  color: white;
-  padding: 8px 12px;
+  top: 12px;
+  right: 12px;
+  z-index: 15;
+
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+
+  padding: 6px 10px;
   border-radius: 6px;
-  font-size: 14px;
+
+  font-size: 13px;
   font-weight: 500;
-  z-index: 5;
   pointer-events: none;
+}
+
+/* =========================
+   Tool Bar (RadiAnt style)
+   ========================= */
+.tool-bar {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 30;
+
+  display: flex;
+  gap: 6px;
+  padding: 6px;
+
+  background: rgba(0, 0, 0, 0.55);
+  border-radius: 8px;
+  backdrop-filter: blur(6px);
+}
+
+.tool-bar button {
+  appearance: none;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+
+  padding: 6px 10px;
+  border-radius: 6px;
+
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.tool-bar button:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.tool-bar button.active {
+  background: rgba(255, 255, 255, 0.28);
+  border-color: rgba(255, 255, 255, 0.5);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+
+/* =========================
+   Cornerstone Overlay Fixes
+   ========================= */
+/* Measurement text readability */
+.cornerstone-canvas {
+  image-rendering: pixelated;
+}
+
+/* Some versions render SVG overlays */
+svg.cornerstone-tools-overlay {
+  overflow: visible;
+}
+
+/* ROI handles visibility */
+.cornerstone-tools-handle {
+  fill: #fff;
+  stroke: #000;
+  stroke-width: 1px;
+}
+
+/* =========================
+   Cursor states
+   ========================= */
+.dicom-viewer .cornerstone-element {
+  cursor: crosshair;
+}
+
+/* Optional: when right mouse is down (zoom drag)
+   You can toggle this with JS later if you want */
+.dicom-viewer.zooming .cornerstone-element {
+  cursor: ns-resize;
+}
+
+/* Optional: when middle mouse is down (WW/WC) */
+.dicom-viewer.windowing .cornerstone-element {
+  cursor: move;
 }

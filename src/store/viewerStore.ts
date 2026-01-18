@@ -1,20 +1,22 @@
+// src/store/viewerStore.ts
 import { create } from 'zustand'
 import dicomParser from 'dicom-parser'
 
 // Lazy load cornerstone to avoid blocking
 let cornerstone: any = null
 let cornerstoneTools: any = null
+let wadoImageLoader: any = null
 
 export const loadCornerstone = async () => {
-  if (!cornerstone) {
+  if (!cornerstone || !cornerstoneTools) {
     const cornerstoneModule = await import('cornerstone-core')
     const toolsModule = await import('cornerstone-tools')
-    
-    // Handle default export or named export
-    cornerstone = cornerstoneModule.default || cornerstoneModule
-    cornerstoneTools = toolsModule.default || toolsModule
-    
-    // If still not found, try accessing the actual module
+
+    // Vite/ESM interop safety
+    cornerstone = (cornerstoneModule as any).default ?? cornerstoneModule
+    cornerstoneTools = (toolsModule as any).default ?? toolsModule
+
+    // Extra fallbacks (some bundles export nested objects)
     if (!cornerstone || Object.keys(cornerstone).length === 0) {
       cornerstone = cornerstoneModule
     }
@@ -22,6 +24,7 @@ export const loadCornerstone = async () => {
       cornerstoneTools = toolsModule
     }
   }
+
   return { cornerstone, cornerstoneTools }
 }
 
@@ -89,7 +92,7 @@ export interface ViewerState {
 }
 
 interface ViewerActions {
-  initializeCornerstone: () => void
+  initializeCornerstone: () => Promise<void>
   loadDicomFile: (file: File) => Promise<void>
   loadDicomFiles: (files: File[]) => Promise<void>
   setActiveStudy: (studyId: string) => void
@@ -133,6 +136,49 @@ const initialState: ViewerState = {
   isInitialized: false,
 }
 
+/**
+ * Cornerstone Tools (classic) tool-name compatibility:
+ * Some builds register Ellipse as "EllipticalRoi" instead of "EllipseRoi".
+ * We'll add both tool classes if present, and you can activate either name.
+ */
+function addToolsClassic(tools: any) {
+  if (!tools || typeof tools.addTool !== 'function') return
+
+  const addIf = (ToolCtor: any) => {
+    if (!ToolCtor) return
+    try {
+      tools.addTool(ToolCtor)
+    } catch {
+      // ignore duplicate / incompatible
+    }
+  }
+
+  // Interaction
+  addIf(tools.WwwcTool)
+  addIf(tools.PanTool)
+  addIf(tools.ZoomTool)
+  addIf(tools.StackScrollMouseWheelTool)
+
+  // Measurements
+  addIf(tools.LengthTool)
+  addIf(tools.RectangleRoiTool)
+
+  // Ellipse variants
+  addIf(tools.EllipseRoiTool)
+  addIf((tools as any).EllipticalRoiTool)
+
+  // Optional (if you ever need them)
+  addIf(tools.AngleTool)
+}
+
+function setPassiveIfExists(tools: any, name: string) {
+  try {
+    tools?.setToolPassive?.(name)
+  } catch {
+    // ignore
+  }
+}
+
 export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => ({
   ...initialState,
 
@@ -141,31 +187,32 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
 
     try {
       const { cornerstone: cs, cornerstoneTools: tools } = await loadCornerstone()
-      
-      // Register image loader
+
+      /**
+       * 1) cornerstone-wado-image-loader init + register wadouri loader
+       */
       try {
-        const cornerstoneWADOImageLoader = await import('cornerstone-wado-image-loader')
-        const dicomParserModule = await import('dicom-parser')
-        
-        // Get the actual module (handle default export)
-        const wadoLoader = cornerstoneWADOImageLoader.default || cornerstoneWADOImageLoader
-        const dicomParser = dicomParserModule.default || dicomParserModule
-        
-        // Configure external dependencies
-        if (wadoLoader.external) {
-          wadoLoader.external.cornerstone = cs
-          wadoLoader.external.dicomParser = dicomParser
+        if (!wadoImageLoader) {
+          const wadoModule = await import('cornerstone-wado-image-loader')
+          wadoImageLoader = (wadoModule as any).default ?? wadoModule
         }
-        
-        // Configure codec paths
-        const codecPath = 'https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader/dist/'
-        if (wadoLoader.webWorkerManager) {
-          wadoLoader.webWorkerManager.initialize({
+
+        const dp = dicomParser
+
+        if (wadoImageLoader?.external) {
+          wadoImageLoader.external.cornerstone = cs
+          wadoImageLoader.external.dicomParser = dp
+        }
+
+        // Configure worker/codecs (optional but recommended)
+        const codecsPath = 'https://cdn.jsdelivr.net/npm/cornerstone-wado-image-loader/dist/'
+        if (wadoImageLoader?.webWorkerManager?.initialize) {
+          wadoImageLoader.webWorkerManager.initialize({
             maxWebWorkers: navigator.hardwareConcurrency || 4,
             startWebWorkersOnDemand: true,
             taskConfiguration: {
               decodeTask: {
-                codecsPath: codecPath,
+                codecsPath,
                 initializeCodecsOnStartup: false,
                 usePDFJS: false,
                 strict: false,
@@ -173,74 +220,77 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
             },
           })
         }
-        
-        // Register the image loader with cornerstone
-        // cornerstone-wado-image-loader exports wadouri.loadImage
-        if (wadoLoader.wadouri && wadoLoader.wadouri.loadImage) {
-          cs.registerImageLoader('wadouri', wadoLoader.wadouri.loadImage)
-          console.log('Image loader registered successfully (wadouri.loadImage)')
-        } else {
-          // Fallback: try to find loadImage in different locations
-          console.warn('wadouri.loadImage not found, trying alternative paths...')
-          console.log('Available keys:', Object.keys(wadoLoader))
-          
-          // Try alternative registration
-          if (wadoLoader.loadImage) {
-            cs.registerImageLoader('wadouri', wadoLoader.loadImage)
-            console.log('Image loader registered (loadImage)')
-          } else {
-            throw new Error('Image loader registration failed - no loadImage function found')
-          }
+
+        // Register image loader for wadouri:
+        // cornerstone-wado-image-loader exports wadouri.loadImage in most builds
+        const wadouriLoadImage =
+          wadoImageLoader?.wadouri?.loadImage ??
+          wadoImageLoader?.loadImage ??
+          null
+
+        if (!wadouriLoadImage) {
+          throw new Error('cornerstone-wado-image-loader: loadImage not found')
         }
+
+        cs.registerImageLoader('wadouri', wadouriLoadImage)
       } catch (loaderError) {
-        console.error('Failed to register image loader:', loaderError)
+        console.error('Failed to init/register cornerstone-wado-image-loader:', loaderError)
         throw loaderError
       }
-      
-      // Initialize cornerstone tools
-      // Skip init if it causes errors - some versions don't require explicit init
-      // Tools will be initialized when needed in components
+
+      /**
+       * 2) cornerstone-tools classic init (externals + init + addTool)
+       */
       if (tools) {
-        // Try to initialize tools only if cornerstone is properly loaded
-        if (typeof tools.init === 'function' && cs) {
+        try {
+          // externals
+          tools.external = tools.external || {}
+          tools.external.cornerstone = cs
+
+          // Measurements often need cornerstone-math + hammerjs
           try {
-            // Check if cornerstone has EVENTS (required by some tool versions)
-            if (cs.EVENTS || cs.default?.EVENTS) {
-              // Try with cornerstone instance
-              if (tools.init.length > 0) {
-                tools.init(cs)
-              } else {
-                tools.init()
-              }
-            }
-          } catch (initError) {
-            // Silently fail - tools might work without explicit init
-            // Some versions of cornerstone-tools don't require init
-            console.debug('Tools init skipped:', initError.message || initError)
+            const cornerstoneMathModule = await import('cornerstone-math')
+            const hammerModule = await import('hammerjs')
+
+            tools.external.cornerstoneMath = (cornerstoneMathModule as any).default ?? cornerstoneMathModule
+            tools.external.Hammer = (hammerModule as any).default ?? hammerModule
+          } catch (e) {
+            console.warn('hammerjs/cornerstone-math missing (measure tools may not work):', e)
           }
-        }
-        
-        // Enable tools (only if they exist)
-        if (tools.addTool && typeof tools.addTool === 'function') {
-          try {
-            if (tools.LengthTool) tools.addTool(tools.LengthTool)
-            if (tools.AngleTool) tools.addTool(tools.AngleTool)
-            if (tools.RectangleRoiTool) tools.addTool(tools.RectangleRoiTool)
-            if (tools.EllipseRoiTool) tools.addTool(tools.EllipseRoiTool)
-            if (tools.PanTool) tools.addTool(tools.PanTool)
-            if (tools.ZoomTool) tools.addTool(tools.ZoomTool)
-            if (tools.WwwcTool) tools.addTool(tools.WwwcTool)
-            if (tools.StackScrollMouseWheelTool) tools.addTool(tools.StackScrollMouseWheelTool)
-          } catch (toolError) {
-            console.warn('Some tools could not be added:', toolError)
+
+          // init (classic)
+          if (typeof tools.init === 'function') {
+            tools.init({
+              mouseEnabled: true,
+              touchEnabled: true,
+              globalToolSyncEnabled: false,
+              showSVGCursors: true,
+            })
           }
+
+          // Add tools to global registry
+          addToolsClassic(tools)
+
+          // Put tools into a safe default state (passive)
+          ;[
+            'Wwwc',
+            'Pan',
+            'Zoom',
+            'StackScrollMouseWheel',
+            'Length',
+            'RectangleRoi',
+            'EllipseRoi',
+            'EllipticalRoi', // some builds use this name
+            'Angle',
+          ].forEach((name) => setPassiveIfExists(tools, name))
+        } catch (e) {
+          console.warn('cornerstone-tools classic init failed:', e)
         }
       }
 
       set({ isInitialized: true })
     } catch (error) {
       console.error('Failed to initialize Cornerstone:', error)
-      // Don't block the app if cornerstone fails
       set({ isInitialized: false })
     }
   },
@@ -259,31 +309,32 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
         const byteArray = new Uint8Array(arrayBuffer)
         const dataset = dicomParser.parseDicom(byteArray)
 
-        const studyInstanceUID = dataset.string('x0020000d') || `study-${Date.now()}-${Math.random()}`
-        const seriesInstanceUID = dataset.string('x0020000e') || `series-${Date.now()}-${Math.random()}`
-        const sopInstanceUID = dataset.string('x00080018') || `image-${Date.now()}-${Math.random()}`
+        const studyInstanceUID =
+          dataset.string('x0020000d') || `study-${Date.now()}-${Math.random()}`
+        const seriesInstanceUID =
+          dataset.string('x0020000e') || `series-${Date.now()}-${Math.random()}`
+        const sopInstanceUID =
+          dataset.string('x00080018') || `image-${Date.now()}-${Math.random()}`
 
-        const patientId = dataset.string('x00100020')
-        const patientName = dataset.string('x00100010')
-        const studyDate = dataset.string('x00080020')
-        const studyTime = dataset.string('x00080030')
-        const studyDescription = dataset.string('x00081030')
+        const patientId = dataset.string('x00100020') ?? undefined
+        const patientName = dataset.string('x00100010') ?? undefined
+        const studyDate = dataset.string('x00080020') ?? undefined
+        const studyTime = dataset.string('x00080030') ?? undefined
+        const studyDescription = dataset.string('x00081030') ?? undefined
         const seriesNumber = dataset.intString('x00200011') || 0
         const instanceNumber = dataset.intString('x00200013') || 0
-        const modality = dataset.string('x00080060')
-        const seriesDescription = dataset.string('x0008103e')
-        
-        // Get slice location for CT series sorting
-        const sliceLocation = dataset.floatString('x00201041')
-        
-        // Get image position patient for better sorting (z-coordinate)
+        const modality = dataset.string('x00080060') ?? undefined
+        const seriesDescription = dataset.string('x0008103e') ?? undefined
+
+        // Sorting metadata for stacks (CT, etc.)
+        const sliceLocationStr = dataset.floatString('x00201041')
+        const sliceLocation = sliceLocationStr ? parseFloat(sliceLocationStr) : undefined
+
         let imagePositionZ: number | undefined
         const imagePositionPatient = dataset.string('x00200032')
         if (imagePositionPatient) {
-          const positions = imagePositionPatient.split('\\').map(Number)
-          if (positions.length >= 3) {
-            imagePositionZ = positions[2] // Z coordinate
-          }
+          const positions = imagePositionPatient.split('\\').map((v) => Number(v))
+          if (positions.length >= 3 && Number.isFinite(positions[2])) imagePositionZ = positions[2]
         }
 
         let study = studiesMap.get(studyInstanceUID)
@@ -314,7 +365,9 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
           study.series.push(series)
         }
 
+        // wadouri loader expects: wadouri:<url>
         const imageId = `wadouri:${URL.createObjectURL(file)}`
+
         const image: DicomImage = {
           id: sopInstanceUID,
           patientId,
@@ -328,8 +381,7 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
           imageId,
           file,
           metadata: dataset,
-          // Add sorting metadata
-          sliceLocation: sliceLocation ? parseFloat(sliceLocation) : undefined,
+          sliceLocation,
           imagePositionZ,
         }
 
@@ -340,22 +392,19 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
     }
 
     const studies = Array.from(studiesMap.values())
-    studies.forEach(study => {
-      study.series.forEach(series => {
-        // Sort CT images by slice location or image position Z, fallback to instance number
+
+    // Sort images and series
+    studies.forEach((study) => {
+      study.series.forEach((series) => {
         series.images.sort((a, b) => {
-          // For CT, prefer slice location or image position Z
           if (series.modality === 'CT') {
-            // Try image position Z first (most accurate)
             if (a.imagePositionZ !== undefined && b.imagePositionZ !== undefined) {
               return a.imagePositionZ - b.imagePositionZ
             }
-            // Fallback to slice location
             if (a.sliceLocation !== undefined && b.sliceLocation !== undefined) {
               return a.sliceLocation - b.sliceLocation
             }
           }
-          // Default: sort by instance number
           return (a.instanceNumber || 0) - (b.instanceNumber || 0)
         })
       })
@@ -365,7 +414,7 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
     set((state) => {
       const newStudies = [...state.studies, ...studies]
       const activeStudyId = state.activeStudyId || (studies[0]?.id ?? null)
-      const activeStudy = newStudies.find(s => s.id === activeStudyId)
+      const activeStudy = newStudies.find((s) => s.id === activeStudyId)
       const activeSeriesId = state.activeSeriesId || (activeStudy?.series[0]?.id ?? null)
 
       return {
@@ -379,7 +428,7 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
 
   setActiveStudy: (studyId: string) => {
     const state = get()
-    const study = state.studies.find(s => s.id === studyId)
+    const study = state.studies.find((s) => s.id === studyId)
     if (study) {
       set({
         activeStudyId: studyId,
@@ -400,10 +449,7 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
   addViewer: (studyId: string, seriesId: string) => {
     const viewerId = `viewer-${Date.now()}-${Math.random()}`
     set((state) => ({
-      openViewers: [
-        ...state.openViewers,
-        { id: viewerId, studyId, seriesId, imageIndex: 0 },
-      ],
+      openViewers: [...state.openViewers, { id: viewerId, studyId, seriesId, imageIndex: 0 }],
     }))
   },
 
@@ -430,7 +476,7 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
   },
 
   setRotation: (rotation: number) => {
-    set({ rotation: rotation % 360 })
+    set({ rotation: ((rotation % 360) + 360) % 360 })
   },
 
   toggleFlipHorizontal: () => {
@@ -442,7 +488,6 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
   },
 
   resetView: () => {
-    // Reset zoom to 1, which will trigger fit-to-window on next render
     set({
       zoom: 1,
       pan: { x: 0, y: 0 },
@@ -455,16 +500,15 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
   },
 
   fitToWindow: () => {
-    // Set zoom to 1 to trigger fit-to-window calculation
     set({ zoom: 1, pan: { x: 0, y: 0 } })
   },
 
   nextImage: () => {
     const state = get()
     const activeSeries = state.studies
-      .find(s => s.id === state.activeStudyId)
-      ?.series.find(s => s.id === state.activeSeriesId)
-    
+      .find((s) => s.id === state.activeStudyId)
+      ?.series.find((s) => s.id === state.activeSeriesId)
+
     if (activeSeries && state.activeImageIndex < activeSeries.images.length - 1) {
       set({ activeImageIndex: state.activeImageIndex + 1 })
     }
@@ -479,8 +523,12 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
 
   deleteStudy: (studyId: string) => {
     set((state) => ({
-      studies: state.studies.filter(s => s.id !== studyId),
+      studies: state.studies.filter((s) => s.id !== studyId),
       activeStudyId: state.activeStudyId === studyId ? null : state.activeStudyId,
+      activeSeriesId:
+        state.activeStudyId === studyId ? null : state.activeSeriesId,
+      activeImageIndex: state.activeStudyId === studyId ? 0 : state.activeImageIndex,
+      openViewers: state.openViewers.filter((v) => v.studyId !== studyId),
     }))
   },
 }))
