@@ -29,20 +29,77 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   const nextImage = useViewerStore((state) => state.nextImage)
   const previousImage = useViewerStore((state) => state.previousImage)
   const setZoom = useViewerStore((state) => state.setZoom)
+  const setWindowWidth = useViewerStore((state) => state.setWindowWidth)
+  const setWindowCenter = useViewerStore((state) => state.setWindowCenter)
 
-  // Zoom ref for avoiding stale state
-  const zoomRef = useRef(zoom)
+  // Refs for avoiding stale state
   const csRef = useRef<any>(null)
+  const cstRef = useRef<any>(null)
 
-  // Keep zoomRef in sync with zoom state
+  const zoomRef = useRef(zoom)
   useEffect(() => {
     zoomRef.current = zoom
   }, [zoom])
+
+  const wwRef = useRef(windowWidth)
+  useEffect(() => {
+    wwRef.current = windowWidth
+  }, [windowWidth])
+
+  const wcRef = useRef(windowCenter)
+  useEffect(() => {
+    wcRef.current = windowCenter
+  }, [windowCenter])
 
   const study = studies.find((s) => s.id === studyId)
   const series = study?.series.find((s) => s.id === seriesId)
   const image = series?.images[imageIndex]
   const totalImages = series?.images.length || 0
+
+  // Safe stack tools setup helper
+  const safeSetupStackTools = useCallback((element: HTMLDivElement, imageIds: string[], index: number) => {
+    const cs = csRef.current
+    const tools = cstRef.current
+    if (!cs || !tools) return
+    if (typeof cs.getEnabledElement !== 'function') return
+
+    // element enabled mi?
+    let enabledElement: any
+    try {
+      enabledElement = cs.getEnabledElement(element)
+    } catch {
+      return
+    }
+    if (!enabledElement) return
+
+    // Stack manager/setStack fonksiyonları var mı?
+    try {
+      if (tools.addStackStateManager) {
+        tools.addStackStateManager(element, ['stack'])
+      }
+
+      const stack = { imageIds, currentImageIdIndex: index }
+      if (tools.setStack) {
+        tools.setStack(element, index, stack)
+      }
+
+      // Tool aktivasyonları
+      if (tools.setToolActive) {
+        tools.setToolActive('StackScrollMouseWheel', {})
+        // Sol tuş Wwwc'yi de pasif yapabiliriz (orta tuş WW/WC için)
+        tools.setToolPassive?.('Wwwc')
+        tools.setToolPassive?.('Zoom') // default zoom devre dışı
+        tools.setToolPassive?.('Pan') // orta tuş pan kapalı (WW/WC için)
+
+        tools.setToolPassive?.('Length')
+        tools.setToolPassive?.('Angle')
+        tools.setToolPassive?.('RectangleRoi')
+        tools.setToolPassive?.('EllipseRoi')
+      }
+    } catch (e) {
+      console.warn('Stack tools setup skipped/failed safely:', e)
+    }
+  }, [])
 
   // Calculate fit-to-window scale
   const calculateFitToWindow = useCallback((element: HTMLElement, imageData: any): number => {
@@ -89,11 +146,26 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     return finalScale
   }, [])
 
-  // Load cornerstone when component mounts
+  // Load cornerstone when component mounts and cache in refs
   useEffect(() => {
-    loadCornerstone().then(() => {
-      setCornerstoneLoaded(true)
+    let cancelled = false
+
+    loadCornerstone().then(({ cornerstone, cornerstoneTools }) => {
+      if (cancelled) return
+
+      // ✅ undefined geldiyse mevcut ref'i bozma
+      if (cornerstone && typeof cornerstone.getEnabledElement === 'function') {
+        csRef.current = cornerstone
+      }
+      if (cornerstoneTools) {
+        cstRef.current = cornerstoneTools
+      }
+
+      // loaded flag sadece gerçekten cornerstone geldiyse true olsun
+      if (csRef.current) setCornerstoneLoaded(true)
     })
+
+    return () => { cancelled = true }
   }, [])
 
   // Handle window resize for fit-to-window
@@ -188,150 +260,191 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   }, [imageIndex, totalImages, nextImage, previousImage, setActiveImageIndex])
 
   // Custom mouse handlers for enhanced controls using Pointer Events API
-  // Optimized with refs to avoid stale state and reduce re-renders
+  // All mouse interactions in one place for cleaner code
   useEffect(() => {
     if (!elementRef.current || !cornerstoneLoaded || !isInitialized) return
 
     const element = elementRef.current
 
-    let rightDown = false
-    let lastY = 0
-
-    const MIN_ZOOM = 0.1
-    const MAX_ZOOM = 10
-    const sensitivity = 0.01
-
-    let rafId: number | null = null
-    let pendingZoom: number | null = null
-
-    // Cornerstone'u bir kere yükleyip cache'le
+    // Cache cornerstone
     loadCornerstone().then(({ cornerstone }) => {
       csRef.current = cornerstone
     })
 
-    const applyZoomToViewport = (newZoom: number) => {
+    // Modlar
+    let rightDown = false
+    let middleDown = false
+
+    // Son pointer konumu
+    let lastX = 0
+    let lastY = 0
+
+    // Zoom limits
+    const MIN_ZOOM = 0.1
+    const MAX_ZOOM = 10
+    const ZOOM_SENS = 0.01
+
+    // WW/WC limits + sensitivity
+    const MIN_WW = 1
+    const MAX_WW = 5000
+    const WW_SENS = 2.0   // X hareketi -> WW
+    const WC_SENS = 1.0   // Y hareketi -> WC
+
+    // Store update'i raf ile yumuşat
+    let rafId: number | null = null
+    let pendingZoom: number | null = null
+    let pendingWW: number | null = null
+    let pendingWC: number | null = null
+
+    const flushStore = () => {
+      rafId = null
+      if (pendingZoom != null) setZoom(pendingZoom)
+      if (pendingWW != null && typeof setWindowWidth === 'function') setWindowWidth(pendingWW)
+      if (pendingWC != null && typeof setWindowCenter === 'function') setWindowCenter(pendingWC)
+      pendingZoom = null
+      pendingWW = null
+      pendingWC = null
+    }
+
+    const scheduleStore = () => {
+      if (rafId != null) return
+      rafId = requestAnimationFrame(flushStore)
+    }
+
+    const applyViewport = (fn: (viewport: any, enabledImage: any) => void) => {
       const cs = csRef.current
       if (!cs) return
-
       try {
-        const enabledElement = cs.getEnabledElement(element)
-        if (!enabledElement || !enabledElement.image) return
+        const enabled = cs.getEnabledElement(element)
+        if (!enabled?.image) return
 
         const viewport = cs.getViewport(element)
         if (!viewport) return
 
-        const fitScale = calculateFitToWindow(element, enabledElement.image)
-        viewport.scale = fitScale * newZoom
+        fn(viewport, enabled.image)
 
         cs.setViewport(element, viewport)
         cs.updateImage(element)
-        // resize her move'da şart değil; çoğu zaman gereksiz masraf
-        // cs.resize(element)
-      } catch (err) {
-        // element henüz enable değilse vb.
+      } catch {
+        // element enable edilmemiş olabilir
       }
     }
 
-    const scheduleStoreZoomUpdate = (newZoom: number) => {
+    const applyZoom = (newZoom: number) => {
+      zoomRef.current = newZoom
       pendingZoom = newZoom
-      if (rafId != null) return
-      rafId = requestAnimationFrame(() => {
-        rafId = null
-        if (pendingZoom == null) return
-        setZoom(pendingZoom)
-        pendingZoom = null
+      scheduleStore()
+
+      applyViewport((viewport, image) => {
+        const fitScale = calculateFitToWindow(element, image)
+        viewport.scale = fitScale * newZoom
+        // zoom 1 ise pan resetlemek istersen:
+        // if (newZoom === 1) viewport.translation = { x: 0, y: 0 }
+      })
+    }
+
+    const applyWwWc = (dx: number, dy: number) => {
+      // Y: yukarı (-dy) -> parlaklık azalsın => WC azalsın
+      // Y: aşağı (+dy) -> parlaklık artsın => WC artsın
+      const nextWC = wcRef.current + dy * WC_SENS
+
+      // X: sağa (+dx) -> kontrast azalsın => WW artsın
+      // X: sola (-dx) -> kontrast artsın => WW azalsın
+      const unclampedWW = wwRef.current + dx * WW_SENS
+      const nextWW = Math.max(MIN_WW, Math.min(MAX_WW, unclampedWW))
+
+      wcRef.current = nextWC
+      wwRef.current = nextWW
+
+      pendingWC = nextWC
+      pendingWW = nextWW
+      scheduleStore()
+
+      applyViewport((viewport) => {
+        viewport.voi = viewport.voi || {}
+        viewport.voi.windowCenter = nextWC
+        viewport.voi.windowWidth = nextWW
       })
     }
 
     const handlePointerDown = (e: PointerEvent) => {
-      if (e.button !== 2) return // right mouse
+      // Right button: 2 -> zoom drag
+      if (e.button === 2) {
+        rightDown = true
+        lastX = e.clientX
+        lastY = e.clientY
+        e.preventDefault()
+        e.stopPropagation()
+        element.setPointerCapture?.(e.pointerId)
+        return
+      }
 
-      rightDown = true
-      lastY = e.clientY
-
-      e.preventDefault()
-      e.stopPropagation()
-
-      element.setPointerCapture?.(e.pointerId)
+      // Middle button: 1 -> WW/WC drag
+      if (e.button === 1) {
+        middleDown = true
+        lastX = e.clientX
+        lastY = e.clientY
+        e.preventDefault()
+        e.stopPropagation()
+        element.setPointerCapture?.(e.pointerId)
+        return
+      }
     }
 
     const handlePointerMove = (e: PointerEvent) => {
-      if (!rightDown) return
+      if (!rightDown && !middleDown) return
 
       e.preventDefault()
       e.stopPropagation()
 
-      const dy = e.clientY - lastY // aşağı +, yukarı -
+      const dx = e.clientX - lastX
+      const dy = e.clientY - lastY
+      lastX = e.clientX
       lastY = e.clientY
 
-      const factor = Math.exp(-dy * sensitivity) // yukarı => >1, aşağı => <1
-      const current = zoomRef.current
-      const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, current * factor))
+      if (rightDown) {
+        // sadece Y ile zoom (senin istediğin)
+        const factor = Math.exp(-dy * ZOOM_SENS) // yukarı => >1, aşağı => <1
+        const current = zoomRef.current
+        const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, current * factor))
+        applyZoom(next)
+        return
+      }
 
-      // refs ile state senkron
-      zoomRef.current = next
-
-      // anlık uygula
-      applyZoomToViewport(next)
-
-      // store'u raf ile güncelle (daha akıcı)
-      scheduleStoreZoomUpdate(next)
+      if (middleDown) {
+        applyWwWc(dx, dy)
+        return
+      }
     }
 
-    const endRightDrag = (e: PointerEvent) => {
-      if (!rightDown) return
-      rightDown = false
-      try {
-        element.releasePointerCapture?.(e.pointerId)
-      } catch {}
+    const handlePointerUp = (e: PointerEvent) => {
+      if (rightDown || middleDown) {
+        rightDown = false
+        middleDown = false
+        try { element.releasePointerCapture?.(e.pointerId) } catch {}
+      }
     }
+
+    const handlePointerCancel = handlePointerUp
 
     const handleWheel = (e: WheelEvent) => {
       if (!element.contains(e.target as Node)) return
 
-      // Right mouse + wheel = zoom
+      // Sağ tuş basılıyken wheel zoom (opsiyonel, sende vardı)
       if (rightDown || e.buttons === 2) {
         e.preventDefault()
         e.stopPropagation()
-
         const zoomFactor = e.deltaY > 0 ? 0.9 : 1.1
-        const newZoom = zoomRef.current * zoomFactor
-        const clampedZoom = Math.max(0.1, Math.min(10, newZoom))
-        zoomRef.current = clampedZoom
-
-        const cs = csRef.current
-        if (cs) {
-          try {
-            const enabledElement = cs.getEnabledElement(element)
-            if (!enabledElement) return
-
-            const viewport = cs.getViewport(element)
-            if (!viewport) return
-
-            // Get fit scale for current image
-            if (enabledElement.image) {
-              const fitScale = calculateFitToWindow(element, enabledElement.image)
-              viewport.scale = fitScale * clampedZoom
-              
-              cs.setViewport(element, viewport)
-              cs.updateImage(element)
-            }
-          } catch (error) {
-            console.warn('Failed to zoom with wheel:', error)
-          }
-        }
-
-        setZoom(clampedZoom)
+        const next = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, zoomRef.current * zoomFactor))
+        applyZoom(next)
+        return
       }
-      // Normal wheel = slice navigation (for CT series with multiple images)
-      else if (totalImages > 1) {
+
+      // Normal wheel = slice navigation
+      if (totalImages > 1) {
         e.preventDefault()
-        
-        if (e.deltaY > 0) {
-          nextImage()
-        } else {
-          previousImage()
-        }
+        if (e.deltaY > 0) nextImage()
+        else previousImage()
       }
     }
 
@@ -341,32 +454,52 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
 
     element.addEventListener('pointerdown', handlePointerDown)
     element.addEventListener('pointermove', handlePointerMove)
-    element.addEventListener('pointerup', endRightDrag)
-    element.addEventListener('pointercancel', endRightDrag)
+    element.addEventListener('pointerup', handlePointerUp)
+    element.addEventListener('pointercancel', handlePointerCancel)
     element.addEventListener('wheel', handleWheel, { passive: false })
     element.addEventListener('contextmenu', handleContextMenu)
 
     return () => {
       element.removeEventListener('pointerdown', handlePointerDown)
       element.removeEventListener('pointermove', handlePointerMove)
-      element.removeEventListener('pointerup', endRightDrag)
-      element.removeEventListener('pointercancel', endRightDrag)
+      element.removeEventListener('pointerup', handlePointerUp)
+      element.removeEventListener('pointercancel', handlePointerCancel)
       element.removeEventListener('wheel', handleWheel)
       element.removeEventListener('contextmenu', handleContextMenu)
 
       if (rafId != null) cancelAnimationFrame(rafId)
       rafId = null
-      pendingZoom = null
     }
-  }, [cornerstoneLoaded, isInitialized, calculateFitToWindow, setZoom, totalImages, nextImage, previousImage])
+  }, [
+    cornerstoneLoaded,
+    isInitialized,
+    totalImages,
+    nextImage,
+    previousImage,
+    calculateFitToWindow,
+    setZoom,
+    setWindowWidth,
+    setWindowCenter,
+  ])
 
   useEffect(() => {
     if (!isInitialized || !cornerstoneLoaded || !elementRef.current || !image || !series) return
 
     setIsLoading(true)
+    let cancelled = false
+
     loadCornerstone().then(({ cornerstone, cornerstoneTools }) => {
+      if (cancelled) return
+
       const element = elementRef.current
-      if (!element) return
+      if (!element) {
+        setIsLoading(false)
+        return
+      }
+
+      // Cache in refs
+      csRef.current = cornerstone
+      cstRef.current = cornerstoneTools
 
       // Enable element
       cornerstone.enable(element)
@@ -378,9 +511,13 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         
         // Load current image first
         cornerstone.loadImage(image.imageId)
-          .then((imageData) => {
+          .then((imageData: any) => {
+            if (cancelled) return
+
             // Wait a bit for element to have proper size, then setup
             const setupImage = () => {
+              if (cancelled) return
+
               const viewport = cornerstone.getDefaultViewportForImage(element, imageData)
               
               // Calculate fit-to-window scale
@@ -411,6 +548,9 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
               
               // Force resize to ensure fit
               cornerstone.resize(element)
+
+              // ✅ Stack tools setup: görüntü gerçekten ekrana basıldıktan sonra
+              safeSetupStackTools(element, imageIds, imageIndex)
             }
             
             // Try immediately, if element has size
@@ -418,114 +558,28 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
               setupImage()
             } else {
               // Wait for element to get size
-              setTimeout(setupImage, 100)
+              setTimeout(() => {
+                if (!cancelled) setupImage()
+              }, 100)
             }
-
-            // Set up stack for mouse wheel scrolling (after image is displayed)
-            setTimeout(() => {
-              // Get current element reference
-              const currentElement = elementRef.current
-              if (!currentElement) {
-                console.warn('Element ref not available, skipping stack setup')
-                return
-              }
-              
-              // Use the cornerstone and tools instances from the outer scope (already loaded)
-              // They are available in the closure
-              try {
-                // Validate cornerstone instance
-                if (!cornerstone) {
-                  console.warn('Cornerstone instance is null or undefined, skipping stack setup')
-                  return
-                }
-                
-                if (typeof cornerstone.getEnabledElement !== 'function') {
-                  console.warn('Cornerstone getEnabledElement is not a function, skipping stack setup')
-                  return
-                }
-                
-                if (!cornerstoneTools) {
-                  console.warn('CornerstoneTools is not available, skipping stack setup')
-                  return
-                }
-                
-                // Check if element is enabled before setting up stack
-                let enabledElement
-                try {
-                  enabledElement = cornerstone.getEnabledElement(currentElement)
-                  if (!enabledElement) {
-                    console.warn('Element not enabled, skipping stack setup')
-                    return
-                  }
-                } catch (err) {
-                  console.warn('Cannot get enabled element, skipping stack setup:', err)
-                  return
-                }
-                
-                // Add stack state manager (only if it exists)
-                if (cornerstoneTools.addStackStateManager) {
-                  cornerstoneTools.addStackStateManager(currentElement, ['stack'])
-                }
-                
-                // Create stack data
-                const stack = {
-                  imageIds: imageIds,
-                  currentImageIdIndex: imageIndex,
-                }
-                
-                // Set stack (only if it exists)
-                if (cornerstoneTools.setStack) {
-                  cornerstoneTools.setStack(currentElement, imageIndex, stack)
-                }
-                
-                // RadiAnt-style controls:
-                // - Left mouse drag: Window/Level (Wwwc)
-                // - Right mouse drag: Direction-based Zoom (custom handler)
-                // - Middle mouse drag: Pan
-                // - Mouse wheel: Stack scroll (slice navigation)
-                
-                // Enable stack scroll with mouse wheel (for CT series)
-                cornerstoneTools.setToolActive('StackScrollMouseWheel', {})
-                
-                // Enable tools with RadiAnt-style mouse buttons
-                cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 }) // Left mouse - Window/Level
-                // Note: Right mouse zoom is handled by custom event handler for direction-based zoom
-                // Disable default right mouse tools to avoid conflicts
-                cornerstoneTools.setToolPassive('Zoom') // Disable default zoom tool
-                cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 }) // Middle mouse - Pan
-                
-                // Disable other tools to avoid conflicts
-                cornerstoneTools.setToolPassive('Length')
-                cornerstoneTools.setToolPassive('Angle')
-                cornerstoneTools.setToolPassive('RectangleRoi')
-                cornerstoneTools.setToolPassive('EllipseRoi')
-              } catch (error) {
-                console.warn('Failed to set up stack tools:', error)
-                // Fallback: enable basic tools
-                try {
-                  if (cornerstoneTools && currentElement) {
-                    cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 })
-                    cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 })
-                    cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 })
-                  }
-                } catch (e) {
-                  console.warn('Failed to activate basic tools:', e)
-                }
-              }
-            }, 150)
 
             setIsLoading(false)
           })
-          .catch((error) => {
+          .catch((error: any) => {
+            if (cancelled) return
             console.error('Failed to load DICOM image:', error)
             setIsLoading(false)
           })
       } else {
         // Single image (non-CT or single slice)
         cornerstone.loadImage(image.imageId)
-          .then((imageData) => {
+          .then((imageData: any) => {
+            if (cancelled) return
+
             // Setup image with fit-to-window
             const setupImage = () => {
+              if (cancelled) return
+
               const viewport = cornerstone.getDefaultViewportForImage(element, imageData)
               
               // Calculate fit-to-window scale
@@ -556,6 +610,28 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
               
               // Force resize to ensure fit
               cornerstone.resize(element)
+
+              // RadiAnt-style controls for single images:
+              // - Right mouse drag: Direction-based Zoom (custom handler)
+              // - Middle mouse drag: WW/WC (custom handler)
+              // All handled in the unified mouse handler useEffect
+              try {
+                const tools = cstRef.current
+                if (tools) {
+                  // All tools passive, custom handlers manage everything
+                  tools.setToolPassive?.('Wwwc')
+                  tools.setToolPassive?.('Zoom')
+                  tools.setToolPassive?.('Pan')
+                  
+                  // Disable other tools to avoid conflicts
+                  tools.setToolPassive?.('Length')
+                  tools.setToolPassive?.('Angle')
+                  tools.setToolPassive?.('RectangleRoi')
+                  tools.setToolPassive?.('EllipseRoi')
+                }
+              } catch (error) {
+                console.warn('Failed to activate some tools:', error)
+              }
             }
             
             // Try immediately, if element has size
@@ -563,38 +639,22 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
               setupImage()
             } else {
               // Wait for element to get size
-              setTimeout(setupImage, 100)
+              setTimeout(() => {
+                if (!cancelled) setupImage()
+              }, 100)
             }
-
-            // RadiAnt-style controls for single images:
-            // - Left mouse drag: Window/Level
-            // - Right mouse drag: Direction-based Zoom (custom handler)
-            // - Middle mouse drag: Pan
-            setTimeout(() => {
-              try {
-                cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 }) // Left mouse - Window/Level
-                // Note: Right mouse zoom is handled by custom event handler for direction-based zoom
-                cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 }) // Middle mouse - Pan
-                
-                // Disable other tools to avoid conflicts
-                cornerstoneTools.setToolPassive('Length')
-                cornerstoneTools.setToolPassive('Angle')
-                cornerstoneTools.setToolPassive('RectangleRoi')
-                cornerstoneTools.setToolPassive('EllipseRoi')
-              } catch (error) {
-                console.warn('Failed to activate some tools:', error)
-              }
-            }, 150)
 
             setIsLoading(false)
           })
-          .catch((error) => {
+          .catch((error: any) => {
+            if (cancelled) return
             console.error('Failed to load DICOM image:', error)
             setIsLoading(false)
           })
       }
 
       return () => {
+        cancelled = true
         cornerstone.disable(element)
       }
     })
@@ -610,6 +670,8 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
     rotation,
     flipHorizontal,
     flipVertical,
+    safeSetupStackTools,
+    calculateFitToWindow,
   ])
 
   // Update viewport when settings change
@@ -667,7 +729,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
       // Only update if we have a stack (multiple images)
       if (series.images.length > 1) {
         cornerstone.loadImage(image.imageId)
-          .then((imageData) => {
+          .then((imageData: any) => {
             try {
               const viewport = cornerstone.getViewport(element) || cornerstone.getDefaultViewportForImage(element, imageData)
               
@@ -707,7 +769,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
               console.warn('Failed to update viewport:', error)
             }
           })
-          .catch((error) => {
+          .catch((error: any) => {
             console.error('Failed to load new image:', error)
           })
       }
