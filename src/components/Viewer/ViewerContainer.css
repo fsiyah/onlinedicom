@@ -1,0 +1,41 @@
+.viewer-container {
+  flex: 1;
+  background: #000;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.viewer-container.empty {
+  background: var(--bg-primary);
+}
+
+.empty-message {
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.empty-message p {
+  margin-bottom: 8px;
+}
+
+.empty-hint {
+  font-size: 14px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+.viewer-container.multi-viewer {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+  gap: 2px;
+  background: var(--bg-primary);
+}
+
+.viewer-panel {
+  background: #000;
+  position: relative;
+  overflow: hidden;
+}

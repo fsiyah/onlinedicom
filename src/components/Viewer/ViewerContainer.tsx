@@ -1,0 +1,62 @@
+import React, { useEffect, useRef } from 'react'
+import { useViewerStore } from '../../store/viewerStore'
+import DicomViewer from './DicomViewer'
+import SliceNavigator from '../SliceNavigator/SliceNavigator'
+import ControlsHelp from '../ControlsHelp/ControlsHelp'
+import './ViewerContainer.css'
+
+const ViewerContainer: React.FC = () => {
+  const activeStudyId = useViewerStore((state) => state.activeStudyId)
+  const activeSeriesId = useViewerStore((state) => state.activeSeriesId)
+  const activeImageIndex = useViewerStore((state) => state.activeImageIndex)
+  const studies = useViewerStore((state) => state.studies)
+  const openViewers = useViewerStore((state) => state.openViewers)
+
+  const activeStudy = studies.find((s) => s.id === activeStudyId)
+  const activeSeries = activeStudy?.series.find((s) => s.id === activeSeriesId)
+
+  if (openViewers.length > 0) {
+    return (
+      <div className="viewer-container multi-viewer">
+        {openViewers.map((viewer) => {
+          const study = studies.find((s) => s.id === viewer.studyId)
+          const series = study?.series.find((s) => s.id === viewer.seriesId)
+          return (
+            <div key={viewer.id} className="viewer-panel">
+              <DicomViewer
+                studyId={viewer.studyId}
+                seriesId={viewer.seriesId}
+                imageIndex={viewer.imageIndex}
+              />
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
+
+  if (!activeSeries || activeSeries.images.length === 0) {
+    return (
+      <div className="viewer-container empty">
+        <div className="empty-message">
+          <p>No images loaded</p>
+          <p className="empty-hint">Open DICOM files from the sidebar to get started</p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="viewer-container">
+      <DicomViewer
+        studyId={activeStudyId || ''}
+        seriesId={activeSeriesId || ''}
+        imageIndex={activeImageIndex}
+      />
+      <SliceNavigator />
+      <ControlsHelp />
+    </div>
+  )
+}
+
+export default ViewerContainer
