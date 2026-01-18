@@ -28,11 +28,56 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
   const setActiveImageIndex = useViewerStore((state) => state.setActiveImageIndex)
   const nextImage = useViewerStore((state) => state.nextImage)
   const previousImage = useViewerStore((state) => state.previousImage)
+  const setZoom = useViewerStore((state) => state.setZoom)
 
   const study = studies.find((s) => s.id === studyId)
   const series = study?.series.find((s) => s.id === seriesId)
   const image = series?.images[imageIndex]
   const totalImages = series?.images.length || 0
+
+  // Calculate fit-to-window scale
+  const calculateFitToWindow = (element: HTMLElement, imageData: any): number => {
+    const elementWidth = element.clientWidth || element.offsetWidth
+    const elementHeight = element.clientHeight || element.offsetHeight
+    
+    // If element has no size yet, return default
+    if (elementWidth === 0 || elementHeight === 0) {
+      console.warn('Element has no size yet, using default scale')
+      return 1
+    }
+    
+    if (!imageData) {
+      console.warn('No image data provided')
+      return 1
+    }
+
+    // Get image dimensions from imageData
+    const imageWidth = imageData.width || imageData.columns || 512
+    const imageHeight = imageData.height || imageData.rows || 512
+
+    if (!imageWidth || !imageHeight || imageWidth === 0 || imageHeight === 0) {
+      console.warn('Invalid image dimensions:', { imageWidth, imageHeight })
+      return 1
+    }
+
+    // Calculate scale to fit both dimensions
+    const scaleX = elementWidth / imageWidth
+    const scaleY = elementHeight / imageHeight
+    
+    // Use the smaller scale to ensure image fits completely
+    const fitScale = Math.min(scaleX, scaleY)
+    
+    // Add small padding (5% margin)
+    const finalScale = fitScale * 0.95
+    
+    console.log('Fit-to-window calculation:', {
+      elementSize: { width: elementWidth, height: elementHeight },
+      imageSize: { width: imageWidth, height: imageHeight },
+      fitScale: finalScale
+    })
+    
+    return finalScale
+  }
 
   // Load cornerstone when component mounts
   useEffect(() => {
@@ -40,6 +85,48 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
       setCornerstoneLoaded(true)
     })
   }, [])
+
+  // Handle window resize for fit-to-window
+  useEffect(() => {
+    const handleResize = () => {
+      if (!cornerstoneLoaded || !isInitialized || !elementRef.current || !image) return
+
+      loadCornerstone().then(({ cornerstone }) => {
+        const element = elementRef.current
+        if (!element) return
+
+        try {
+          const enabledElement = cornerstone.getEnabledElement(element)
+          if (enabledElement && enabledElement.image) {
+            const imageData = enabledElement.image
+            const fitScale = calculateFitToWindow(element, imageData)
+            
+            const viewport = cornerstone.getViewport(element)
+            if (viewport) {
+              // Recalculate scale based on current zoom and new fit scale
+              const finalScale = fitScale * zoom
+              viewport.scale = finalScale
+              
+              // Reset pan if zoom is 1 (fit-to-window)
+              if (zoom === 1) {
+                viewport.translation = { x: 0, y: 0 }
+              }
+              
+              cornerstone.setViewport(element, viewport)
+              cornerstone.updateImage(element)
+            }
+          }
+        } catch (error) {
+          // Element not enabled yet, ignore
+        }
+      })
+    }
+
+    window.addEventListener('resize', handleResize)
+    return () => {
+      window.removeEventListener('resize', handleResize)
+    }
+  }, [cornerstoneLoaded, isInitialized, image, zoom, setZoom])
 
   // Keyboard navigation for CT series
   useEffect(() => {
@@ -109,67 +196,93 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         // Load current image first
         cornerstone.loadImage(image.imageId)
           .then((imageData) => {
-            const viewport = cornerstone.getDefaultViewportForImage(element, imageData)
-            
-            // Apply window/level
-            viewport.voi.windowWidth = windowWidth
-            viewport.voi.windowCenter = windowCenter
-            
-            // Apply zoom
-            viewport.scale = zoom
-            
-            // Apply rotation
-            viewport.rotation = rotation
-            
-            // Apply flip
-            viewport.hflip = flipHorizontal
-            viewport.vflip = flipVertical
-
-            cornerstone.displayImage(element, imageData, viewport)
-
-            // Set up stack for mouse wheel scrolling
-            try {
-              // Add stack state manager
-              cornerstoneTools.addStackStateManager(element, ['stack'])
+            // Wait a bit for element to have proper size, then setup
+            const setupImage = () => {
+              const viewport = cornerstone.getDefaultViewportForImage(element, imageData)
               
-              // Create stack data
-              const stack = {
-                imageIds: imageIds,
-                currentImageIdIndex: imageIndex,
+              // Calculate fit-to-window scale
+              const fitScale = calculateFitToWindow(element, imageData)
+              
+              // Apply window/level
+              viewport.voi.windowWidth = windowWidth
+              viewport.voi.windowCenter = windowCenter
+              
+              // Apply zoom: zoom is a multiplier relative to fit scale
+              // If zoom is 1, use fit scale; otherwise multiply fit scale by zoom
+              const finalScale = fitScale * zoom
+              viewport.scale = finalScale
+              
+              // Reset pan for fit-to-window when zoom is 1
+              if (zoom === 1) {
+                viewport.translation = { x: 0, y: 0 }
               }
               
-              cornerstoneTools.setStack(element, imageIndex, stack)
+              // Apply rotation
+              viewport.rotation = rotation
               
-              // RadiAnt-style controls:
-              // - Left mouse drag: Window/Level (Wwwc)
-              // - Right mouse drag: Zoom
-              // - Middle mouse drag: Pan
-              // - Mouse wheel: Stack scroll (slice navigation)
+              // Apply flip
+              viewport.hflip = flipHorizontal
+              viewport.vflip = flipVertical
+
+              cornerstone.displayImage(element, imageData, viewport)
               
-              // Enable stack scroll with mouse wheel (for CT series)
-              cornerstoneTools.setToolActive('StackScrollMouseWheel', {})
-              
-              // Enable tools with RadiAnt-style mouse buttons
-              cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 }) // Left mouse - Window/Level
-              cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 }) // Right mouse - Zoom
-              cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 }) // Middle mouse - Pan
-              
-              // Disable other tools to avoid conflicts
-              cornerstoneTools.setToolPassive('Length')
-              cornerstoneTools.setToolPassive('Angle')
-              cornerstoneTools.setToolPassive('RectangleRoi')
-              cornerstoneTools.setToolPassive('EllipseRoi')
-            } catch (error) {
-              console.warn('Failed to set up stack tools:', error)
-              // Fallback: enable basic tools
-              try {
-                cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 })
-                cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 })
-                cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 })
-              } catch (e) {
-                console.warn('Failed to activate basic tools:', e)
-              }
+              // Force resize to ensure fit
+              cornerstone.resize(element)
             }
+            
+            // Try immediately, if element has size
+            if (element.clientWidth > 0 && element.clientHeight > 0) {
+              setupImage()
+            } else {
+              // Wait for element to get size
+              setTimeout(setupImage, 100)
+            }
+
+            // Set up stack for mouse wheel scrolling (after image is displayed)
+            setTimeout(() => {
+              try {
+                // Add stack state manager
+                cornerstoneTools.addStackStateManager(element, ['stack'])
+                
+                // Create stack data
+                const stack = {
+                  imageIds: imageIds,
+                  currentImageIdIndex: imageIndex,
+                }
+                
+                cornerstoneTools.setStack(element, imageIndex, stack)
+                
+                // RadiAnt-style controls:
+                // - Left mouse drag: Window/Level (Wwwc)
+                // - Right mouse drag: Zoom
+                // - Middle mouse drag: Pan
+                // - Mouse wheel: Stack scroll (slice navigation)
+                
+                // Enable stack scroll with mouse wheel (for CT series)
+                cornerstoneTools.setToolActive('StackScrollMouseWheel', {})
+                
+                // Enable tools with RadiAnt-style mouse buttons
+                cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 }) // Left mouse - Window/Level
+                cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 }) // Right mouse - Zoom
+                cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 }) // Middle mouse - Pan
+                
+                // Disable other tools to avoid conflicts
+                cornerstoneTools.setToolPassive('Length')
+                cornerstoneTools.setToolPassive('Angle')
+                cornerstoneTools.setToolPassive('RectangleRoi')
+                cornerstoneTools.setToolPassive('EllipseRoi')
+              } catch (error) {
+                console.warn('Failed to set up stack tools:', error)
+                // Fallback: enable basic tools
+                try {
+                  cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 })
+                  cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 })
+                  cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 })
+                } catch (e) {
+                  console.warn('Failed to activate basic tools:', e)
+                }
+              }
+            }, 150)
 
             setIsLoading(false)
           })
@@ -181,41 +294,67 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
         // Single image (non-CT or single slice)
         cornerstone.loadImage(image.imageId)
           .then((imageData) => {
-            const viewport = cornerstone.getDefaultViewportForImage(element, imageData)
-            
-            // Apply window/level
-            viewport.voi.windowWidth = windowWidth
-            viewport.voi.windowCenter = windowCenter
-            
-            // Apply zoom
-            viewport.scale = zoom
-            
-            // Apply rotation
-            viewport.rotation = rotation
-            
-            // Apply flip
-            viewport.hflip = flipHorizontal
-            viewport.vflip = flipVertical
+            // Setup image with fit-to-window
+            const setupImage = () => {
+              const viewport = cornerstone.getDefaultViewportForImage(element, imageData)
+              
+              // Calculate fit-to-window scale
+              const fitScale = calculateFitToWindow(element, imageData)
+              
+              // Apply window/level
+              viewport.voi.windowWidth = windowWidth
+              viewport.voi.windowCenter = windowCenter
+              
+              // Apply zoom: zoom is a multiplier relative to fit scale
+              // If zoom is 1, use fit scale; otherwise multiply fit scale by zoom
+              const finalScale = fitScale * zoom
+              viewport.scale = finalScale
+              
+              // Reset pan for fit-to-window when zoom is 1
+              if (zoom === 1) {
+                viewport.translation = { x: 0, y: 0 }
+              }
+              
+              // Apply rotation
+              viewport.rotation = rotation
+              
+              // Apply flip
+              viewport.hflip = flipHorizontal
+              viewport.vflip = flipVertical
 
-            cornerstone.displayImage(element, imageData, viewport)
+              cornerstone.displayImage(element, imageData, viewport)
+              
+              // Force resize to ensure fit
+              cornerstone.resize(element)
+            }
+            
+            // Try immediately, if element has size
+            if (element.clientWidth > 0 && element.clientHeight > 0) {
+              setupImage()
+            } else {
+              // Wait for element to get size
+              setTimeout(setupImage, 100)
+            }
 
             // RadiAnt-style controls for single images:
             // - Left mouse drag: Window/Level
             // - Right mouse drag: Zoom
             // - Middle mouse drag: Pan
-            try {
-              cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 }) // Left mouse - Window/Level
-              cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 }) // Right mouse - Zoom
-              cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 }) // Middle mouse - Pan
-              
-              // Disable other tools to avoid conflicts
-              cornerstoneTools.setToolPassive('Length')
-              cornerstoneTools.setToolPassive('Angle')
-              cornerstoneTools.setToolPassive('RectangleRoi')
-              cornerstoneTools.setToolPassive('EllipseRoi')
-            } catch (error) {
-              console.warn('Failed to activate some tools:', error)
-            }
+            setTimeout(() => {
+              try {
+                cornerstoneTools.setToolActive('Wwwc', { mouseButtonMask: 1 }) // Left mouse - Window/Level
+                cornerstoneTools.setToolActive('Zoom', { mouseButtonMask: 2 }) // Right mouse - Zoom
+                cornerstoneTools.setToolActive('Pan', { mouseButtonMask: 4 }) // Middle mouse - Pan
+                
+                // Disable other tools to avoid conflicts
+                cornerstoneTools.setToolPassive('Length')
+                cornerstoneTools.setToolPassive('Angle')
+                cornerstoneTools.setToolPassive('RectangleRoi')
+                cornerstoneTools.setToolPassive('EllipseRoi')
+              } catch (error) {
+                console.warn('Failed to activate some tools:', error)
+              }
+            }, 150)
 
             setIsLoading(false)
           })
@@ -253,18 +392,23 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
       
       // Check if element is enabled
       try {
-        const viewport = cornerstone.getViewport(element)
-        
-        if (viewport) {
-          viewport.voi.windowWidth = windowWidth
-          viewport.voi.windowCenter = windowCenter
-          viewport.scale = zoom
-          viewport.rotation = rotation
-          viewport.hflip = flipHorizontal
-          viewport.vflip = flipVertical
+        const enabledElement = cornerstone.getEnabledElement(element)
+        if (enabledElement && enabledElement.image) {
+          const imageData = enabledElement.image
+          const fitScale = calculateFitToWindow(element, imageData)
+          const viewport = cornerstone.getViewport(element)
           
-          cornerstone.setViewport(element, viewport)
-          cornerstone.updateImage(element)
+          if (viewport) {
+            viewport.voi.windowWidth = windowWidth
+            viewport.voi.windowCenter = windowCenter
+            viewport.scale = fitScale * zoom // Apply zoom relative to fit scale
+            viewport.rotation = rotation
+            viewport.hflip = flipHorizontal
+            viewport.vflip = flipVertical
+            
+            cornerstone.setViewport(element, viewport)
+            cornerstone.updateImage(element)
+          }
         }
       } catch (error) {
         // Element might not be enabled yet, ignore this update
@@ -297,15 +441,24 @@ const DicomViewer: React.FC<DicomViewerProps> = ({
             try {
               const viewport = cornerstone.getViewport(element) || cornerstone.getDefaultViewportForImage(element, imageData)
               
+              // Calculate fit-to-window scale for new image
+              const fitScale = calculateFitToWindow(element, imageData)
+              
               // Preserve current viewport settings
               viewport.voi.windowWidth = windowWidth
               viewport.voi.windowCenter = windowCenter
-              viewport.scale = zoom
+              viewport.scale = fitScale * zoom // Apply zoom relative to fit scale
               viewport.rotation = rotation
               viewport.hflip = flipHorizontal
               viewport.vflip = flipVertical
+              
+              // Reset pan if zoom is 1
+              if (zoom === 1) {
+                viewport.translation = { x: 0, y: 0 }
+              }
 
               cornerstone.displayImage(element, imageData, viewport)
+              cornerstone.resize(element)
               
               // Update stack index
               try {

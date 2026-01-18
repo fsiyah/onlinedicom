@@ -37,6 +37,7 @@ const Toolbar: React.FC = () => {
   const setWindowWidth = useViewerStore((state) => state.setWindowWidth)
   const setWindowCenter = useViewerStore((state) => state.setWindowCenter)
   const resetView = useViewerStore((state) => state.resetView)
+  const fitToWindow = useViewerStore((state) => state.fitToWindow)
   const nextImage = useViewerStore((state) => state.nextImage)
   const previousImage = useViewerStore((state) => state.previousImage)
 
@@ -83,7 +84,10 @@ const Toolbar: React.FC = () => {
           <button className="toolbar-button" onClick={handleZoomIn} title="Zoom In">
             <ZoomIn size={18} />
           </button>
-          <button className="toolbar-button" onClick={() => setZoom(1)} title="Reset Zoom">
+          <button className="toolbar-button" onClick={fitToWindow} title="Fit to Window">
+            <span style={{ fontSize: '12px' }}>Fit</span>
+          </button>
+          <button className="toolbar-button" onClick={() => setZoom(1)} title="Reset Zoom to 1:1">
             <span style={{ fontSize: '12px' }}>1:1</span>
           </button>
         </div>

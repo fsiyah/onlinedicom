@@ -96,6 +96,7 @@ interface ViewerActions {
   nextImage: () => void
   previousImage: () => void
   deleteStudy: (studyId: string) => void
+  fitToWindow: () => void
 }
 
 const initialState: ViewerState = {
@@ -426,6 +427,7 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
   },
 
   resetView: () => {
+    // Reset zoom to 1, which will trigger fit-to-window on next render
     set({
       zoom: 1,
       pan: { x: 0, y: 0 },
@@ -435,6 +437,11 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
       windowWidth: 400,
       windowCenter: 40,
     })
+  },
+
+  fitToWindow: () => {
+    // Set zoom to 1 to trigger fit-to-window calculation
+    set({ zoom: 1, pan: { x: 0, y: 0 } })
   },
 
   nextImage: () => {
