@@ -112,6 +112,7 @@ interface ViewerActions {
   previousImage: () => void
   deleteStudy: (studyId: string) => void
   fitToWindow: () => void
+  setMeasurementTool: (tool: 'length' | 'angle' | 'roi' | 'ellipse' | null) => void
 }
 
 const initialState: ViewerState = {
@@ -530,5 +531,16 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
       activeImageIndex: state.activeStudyId === studyId ? 0 : state.activeImageIndex,
       openViewers: state.openViewers.filter((v) => v.studyId !== studyId),
     }))
+  },
+
+  setMeasurementTool: (tool: 'length' | 'angle' | 'roi' | 'ellipse' | null) => {
+    set({
+      measurementTools: {
+        length: tool === 'length',
+        angle: tool === 'angle',
+        roi: tool === 'roi',
+        ellipse: tool === 'ellipse',
+      },
+    })
   },
 }))

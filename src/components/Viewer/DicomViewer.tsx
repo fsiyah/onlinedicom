@@ -8,8 +8,13 @@ interface DicomViewerProps {
   imageIndex: number
 }
 
-type MeasureTool = 'None' | 'Length' | 'RectangleRoi'
-const MEASURE_TOOLS: Exclude<MeasureTool, 'None'>[] = ['Length', 'RectangleRoi']
+type MeasureTool = 'None' | 'Length' | 'Angle' | 'RectangleRoi' | 'EllipseRoi'
+const MEASURE_TOOLS: Exclude<MeasureTool, 'None'>[] = [
+  'Length',
+  'Angle',
+  'RectangleRoi',
+  'EllipseRoi',
+]
 
 const DicomViewer: React.FC<DicomViewerProps> = ({ studyId, seriesId, imageIndex }) => {
   const elementRef = useRef<HTMLDivElement>(null)
@@ -40,6 +45,8 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ studyId, seriesId, imageIndex
   const setZoom = useViewerStore((s) => s.setZoom)
   const setWindowWidth = useViewerStore((s) => s.setWindowWidth)
   const setWindowCenter = useViewerStore((s) => s.setWindowCenter)
+  const measurementTools = useViewerStore((s) => s.measurementTools)
+  const setMeasurementTool = useViewerStore((s) => s.setMeasurementTool)
 
   // Avoid stale closures in pointer handlers
   const zoomRef = useRef(zoom)
@@ -90,7 +97,9 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ studyId, seriesId, imageIndex
     if (typeof addForEl === 'function') {
       // Try to add commonly used tools (if present in bundle)
       if (tools.LengthTool) safe(() => addForEl(element, tools.LengthTool))
+      if (tools.AngleTool) safe(() => addForEl(element, tools.AngleTool))
       if (tools.RectangleRoiTool) safe(() => addForEl(element, tools.RectangleRoiTool))
+      if (tools.EllipseRoiTool) safe(() => addForEl(element, tools.EllipseRoiTool))
       if (tools.WwwcTool) safe(() => addForEl(element, tools.WwwcTool))
       if (tools.PanTool) safe(() => addForEl(element, tools.PanTool))
       if (tools.ZoomTool) safe(() => addForEl(element, tools.ZoomTool))
@@ -137,6 +146,27 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ studyId, seriesId, imageIndex
     },
     [safe, setAllMeasureToolsPassive]
   )
+
+  // Sync measurement tool from store (toolbar is source of truth)
+  useEffect(() => {
+    const tool: MeasureTool = measurementTools.length
+      ? 'Length'
+      : measurementTools.angle
+        ? 'Angle'
+        : measurementTools.roi
+          ? 'RectangleRoi'
+          : measurementTools.ellipse
+            ? 'EllipseRoi'
+            : 'None'
+    setActiveTool(tool)
+    activateMeasureTool(tool)
+  }, [
+    measurementTools.length,
+    measurementTools.angle,
+    measurementTools.roi,
+    measurementTools.ellipse,
+    activateMeasureTool,
+  ])
 
   // Stack toolState (prevents some internal listeners from crashing)
   const ensureStackState = useCallback(
@@ -192,13 +222,12 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ studyId, seriesId, imageIndex
       return true
     }
 
-    if (activeTool !== 'None' && activeTool !== 'None') {
-      if (activeTool === 'Length' || activeTool === 'RectangleRoi') {
-        if (tryDeleteFrom(activeTool)) return
-      }
+    if (activeTool !== 'None') {
+      if (tryDeleteFrom(activeTool as Exclude<MeasureTool, 'None'>)) return
     }
-    if (tryDeleteFrom('Length')) return
-    tryDeleteFrom('RectangleRoi')
+    for (const name of MEASURE_TOOLS) {
+      if (tryDeleteFrom(name)) return
+    }
   }, [activeTool, safe])
 
   // Load modules once
@@ -553,16 +582,19 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ studyId, seriesId, imageIndex
 
         case 'Escape':
           e.preventDefault()
+          setMeasurementTool(null)
           activateMeasureTool('None')
           return
         case 'l':
         case 'L':
           e.preventDefault()
+          setMeasurementTool(activeTool === 'Length' ? null : 'length')
           activateMeasureTool(activeTool === 'Length' ? 'None' : 'Length')
           return
         case 'r':
         case 'R':
           e.preventDefault()
+          setMeasurementTool(activeTool === 'RectangleRoi' ? null : 'roi')
           activateMeasureTool(activeTool === 'RectangleRoi' ? 'None' : 'RectangleRoi')
           return
 
@@ -589,6 +621,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ studyId, seriesId, imageIndex
     setActiveImageIndex,
     activeTool,
     activateMeasureTool,
+    setMeasurementTool,
     deleteSelectedAnnotation,
     clearAllAnnotations,
   ])
@@ -608,42 +641,6 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ studyId, seriesId, imageIndex
           <div className="loading-spinner">Loading...</div>
         </div>
       )}
-
-      <div className="tool-bar">
-        <button
-          className={activeTool === 'Length' ? 'active' : ''}
-          onClick={() => activateMeasureTool(activeTool === 'Length' ? 'None' : 'Length')}
-          title="Cetvel (L)"
-        >
-          Cetvel
-        </button>
-
-        <button
-          className={activeTool === 'RectangleRoi' ? 'active' : ''}
-          onClick={() =>
-            activateMeasureTool(activeTool === 'RectangleRoi' ? 'None' : 'RectangleRoi')
-          }
-          title="Rectangle ROI (R)"
-        >
-          Rectangle
-        </button>
-
-        <button
-          className={activeTool === 'None' ? 'active' : ''}
-          onClick={() => activateMeasureTool('None')}
-          title="Kapat (Esc)"
-        >
-          Kapat
-        </button>
-
-        <button onClick={deleteSelectedAnnotation} title="Seçili / Son çizileni sil (Del)">
-          Sil
-        </button>
-
-        <button onClick={clearAllAnnotations} title="Tüm ölçümleri temizle (C)">
-          Temizle
-        </button>
-      </div>
 
       {totalImages > 1 && (
         <div className="series-info">

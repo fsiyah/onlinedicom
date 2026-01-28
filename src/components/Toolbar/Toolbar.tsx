@@ -7,7 +7,6 @@ import {
   FlipHorizontal,
   FlipVertical,
   RotateCcw,
-  Maximize,
   Minus,
   Plus,
   Ruler,
@@ -40,8 +39,9 @@ const Toolbar: React.FC = () => {
   const fitToWindow = useViewerStore((state) => state.fitToWindow)
   const nextImage = useViewerStore((state) => state.nextImage)
   const previousImage = useViewerStore((state) => state.previousImage)
+  const measurementTools = useViewerStore((state) => state.measurementTools)
+  const setMeasurementTool = useViewerStore((state) => state.setMeasurementTool)
 
-  const [activeTool, setActiveTool] = React.useState<string | null>(null)
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [showPACSDialog, setShowPACSDialog] = useState(false)
 
@@ -63,21 +63,6 @@ const Toolbar: React.FC = () => {
     <div className="toolbar">
       <div className="toolbar-section">
         <div className="toolbar-group">
-          <button
-            className={`toolbar-button ${activeTool === 'pan' ? 'active' : ''}`}
-            onClick={() => setActiveTool(activeTool === 'pan' ? null : 'pan')}
-            title="Pan Tool"
-          >
-            <Maximize size={18} />
-          </button>
-          <button
-            className={`toolbar-button ${activeTool === 'zoom' ? 'active' : ''}`}
-            onClick={() => setActiveTool(activeTool === 'zoom' ? null : 'zoom')}
-            title="Zoom Tool"
-          >
-            <ZoomIn size={18} />
-          </button>
-          <div className="toolbar-divider" />
           <button className="toolbar-button" onClick={handleZoomOut} title="Zoom Out">
             <ZoomOut size={18} />
           </button>
@@ -130,29 +115,29 @@ const Toolbar: React.FC = () => {
         <div className="toolbar-group">
           <div className="toolbar-divider" />
           <button
-            className={`toolbar-button ${activeTool === 'length' ? 'active' : ''}`}
-            onClick={() => setActiveTool(activeTool === 'length' ? null : 'length')}
-            title="Length Measurement"
+            className={`toolbar-button ${measurementTools.length ? 'active' : ''}`}
+            onClick={() => setMeasurementTool(measurementTools.length ? null : 'length')}
+            title="Length Measurement (Cetvel)"
           >
             <Ruler size={18} />
           </button>
           <button
-            className={`toolbar-button ${activeTool === 'angle' ? 'active' : ''}`}
-            onClick={() => setActiveTool(activeTool === 'angle' ? null : 'angle')}
+            className={`toolbar-button ${measurementTools.angle ? 'active' : ''}`}
+            onClick={() => setMeasurementTool(measurementTools.angle ? null : 'angle')}
             title="Angle Measurement"
           >
             <MoveDiagonal size={18} />
           </button>
           <button
-            className={`toolbar-button ${activeTool === 'roi' ? 'active' : ''}`}
-            onClick={() => setActiveTool(activeTool === 'roi' ? null : 'roi')}
+            className={`toolbar-button ${measurementTools.roi ? 'active' : ''}`}
+            onClick={() => setMeasurementTool(measurementTools.roi ? null : 'roi')}
             title="Rectangle ROI"
           >
             <Square size={18} />
           </button>
           <button
-            className={`toolbar-button ${activeTool === 'ellipse' ? 'active' : ''}`}
-            onClick={() => setActiveTool(activeTool === 'ellipse' ? null : 'ellipse')}
+            className={`toolbar-button ${measurementTools.ellipse ? 'active' : ''}`}
+            onClick={() => setMeasurementTool(measurementTools.ellipse ? null : 'ellipse')}
             title="Ellipse ROI"
           >
             <Circle size={18} />
