@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useViewerStore } from '../../store/viewerStore'
 import { Maximize2, Grid3x3 } from 'lucide-react'
 import MPRViewerPanel from './MPRViewerPanel'
@@ -11,6 +11,7 @@ import {
   ObliqueRotation,
   calculateSliceIndexForPosition,
 } from '../../utils/mprUtils'
+import { activateCrosshairsTool } from '../../utils/cornerstoneToolsConfig'
 import './MPRViewer.css'
 
 const MPRViewer: React.FC = () => {
@@ -20,11 +21,11 @@ const MPRViewer: React.FC = () => {
 
   const [layout, setLayout] = useState<'1x1' | '2x2'>('2x2')
   const [activePlane, setActivePlane] = useState<Plane>('axial')
-  
+
   // Cross-reference state
   const [crossReferencePoint, setCrossReferencePoint] = useState<[number, number] | null>(null)
   const [crossReferencePlane, setCrossReferencePlane] = useState<Plane | null>(null)
-  
+
   // Synchronized image indices for each plane
   const [imageIndices, setImageIndices] = useState<Record<Plane, number>>({
     axial: 0,
@@ -46,6 +47,9 @@ const MPRViewer: React.FC = () => {
     sagittal: 10,
   })
 
+  // Track which viewports are ready
+  const [readyViewports, setReadyViewports] = useState<Set<Plane>>(new Set())
+
   // Get current series
   const study = useMemo(() => studies.find((s) => s.id === activeStudyId), [studies, activeStudyId])
   const series = useMemo(() => study?.series.find((s) => s.id === activeSeriesId), [study, activeSeriesId])
@@ -56,6 +60,63 @@ const MPRViewer: React.FC = () => {
     if (!images.length || !isMPRCompatible(images)) return null
     return calculateVolumeData(images)
   }, [images])
+
+  // Handle viewport ready callback
+  const handleViewportReady = useCallback((plane: Plane, _viewportId: string) => {
+    setReadyViewports((prev) => {
+      const next = new Set(prev)
+      next.add(plane)
+      return next
+    })
+  }, [])
+
+  // Activate CrosshairsTool and force render all viewports when ready (in 2x2 mode)
+  useEffect(() => {
+    if (layout === '2x2' && readyViewports.size >= 3) {
+      // All 3 viewports ready, activate crosshairs
+      console.log('All viewports ready, activating CrosshairsTool')
+      activateCrosshairsTool()
+      
+      // Force render ALL viewports after all are ready
+      // This ensures WebGL context is properly shared
+      const forceRenderAllViewports = async () => {
+        try {
+          const { getRenderingEngine } = await import('@cornerstonejs/core')
+          const renderingEngine = getRenderingEngine('mpr-rendering-engine')
+          if (renderingEngine) {
+            // Get all viewports and render them
+            const viewports = renderingEngine.getViewports()
+            console.log(`Force rendering ${viewports.length} viewports after all ready`)
+            
+            // Render each viewport individually with a small delay
+            for (const vp of viewports) {
+              vp.render()
+              await new Promise(r => setTimeout(r, 50))
+            }
+            
+            // Final render of all viewports together
+            renderingEngine.render()
+          }
+        } catch (e) {
+          console.error('Failed to force render viewports:', e)
+        }
+      }
+      
+      // Delay to ensure DOM is fully updated
+      setTimeout(forceRenderAllViewports, 100)
+      setTimeout(forceRenderAllViewports, 500)
+      setTimeout(forceRenderAllViewports, 1500)
+    } else if (layout === '1x1' && readyViewports.has(activePlane)) {
+      // In single view mode, we can't use crosshairs effectively
+      // but at least the viewport is ready
+      console.log(`Single viewport ${activePlane} ready`)
+    }
+  }, [readyViewports, layout, activePlane])
+
+  // Reset ready viewports when series changes
+  useEffect(() => {
+    setReadyViewports(new Set())
+  }, [activeSeriesId])
 
   // Handle cross-reference point changes - synchronize slice indices across planes for spatial alignment
   const handleCrossReferenceChange = useCallback(
@@ -239,6 +300,7 @@ const MPRViewer: React.FC = () => {
               onSlabThicknessChange={handleSlabThicknessChange}
               syncImageIndex={imageIndices[activePlane]}
               imageIndices={imageIndices}
+              onViewportReady={handleViewportReady}
             />
           </div>
         )}
@@ -254,9 +316,7 @@ const MPRViewer: React.FC = () => {
                 allRotations={rotations}
                 slabThickness={slabThickness}
                 crossReferencePoint={
-                  crossReferencePlane === 'axial'
-                    ? crossReferencePoint
-                    : getCrossReferenceForPlane('axial')
+                  crossReferencePlane === 'axial' ? crossReferencePoint : getCrossReferenceForPlane('axial')
                 }
                 onCrossReferenceChange={(point) => handleCrossReferenceChange(point, 'axial')}
                 onImageIndexChange={(targetPlane, index) => handleImageIndexChange(targetPlane, index)}
@@ -264,6 +324,7 @@ const MPRViewer: React.FC = () => {
                 onSlabThicknessChange={handleSlabThicknessChange}
                 syncImageIndex={imageIndices.axial}
                 imageIndices={imageIndices}
+                onViewportReady={handleViewportReady}
               />
             </div>
             <div className="mpr-panel">
@@ -276,9 +337,7 @@ const MPRViewer: React.FC = () => {
                 allRotations={rotations}
                 slabThickness={slabThickness}
                 crossReferencePoint={
-                  crossReferencePlane === 'coronal'
-                    ? crossReferencePoint
-                    : getCrossReferenceForPlane('coronal')
+                  crossReferencePlane === 'coronal' ? crossReferencePoint : getCrossReferenceForPlane('coronal')
                 }
                 onCrossReferenceChange={(point) => handleCrossReferenceChange(point, 'coronal')}
                 onImageIndexChange={(targetPlane, index) => handleImageIndexChange(targetPlane, index)}
@@ -286,6 +345,7 @@ const MPRViewer: React.FC = () => {
                 onSlabThicknessChange={handleSlabThicknessChange}
                 syncImageIndex={imageIndices.coronal}
                 imageIndices={imageIndices}
+                onViewportReady={handleViewportReady}
               />
             </div>
             <div className="mpr-panel">
@@ -298,9 +358,7 @@ const MPRViewer: React.FC = () => {
                 allRotations={rotations}
                 slabThickness={slabThickness}
                 crossReferencePoint={
-                  crossReferencePlane === 'sagittal'
-                    ? crossReferencePoint
-                    : getCrossReferenceForPlane('sagittal')
+                  crossReferencePlane === 'sagittal' ? crossReferencePoint : getCrossReferenceForPlane('sagittal')
                 }
                 onCrossReferenceChange={(point) => handleCrossReferenceChange(point, 'sagittal')}
                 onImageIndexChange={(targetPlane, index) => handleImageIndexChange(targetPlane, index)}
@@ -308,6 +366,7 @@ const MPRViewer: React.FC = () => {
                 onSlabThicknessChange={handleSlabThicknessChange}
                 syncImageIndex={imageIndices.sagittal}
                 imageIndices={imageIndices}
+                onViewportReady={handleViewportReady}
               />
             </div>
             <div className="mpr-panel">

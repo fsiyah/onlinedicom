@@ -6,42 +6,102 @@
 import { DicomImage } from '../store/viewerStore'
 import { initCornerstone3D, getCornerstone3D } from './cornerstone3DConfig'
 
+// Store the actual data range for VOI calculation
+let lastVolumeDataRange: { min: number; max: number } | null = null
+
+// Mutex map to prevent multiple simultaneous volume loads
+const volumeLoadingPromises = new Map<string, Promise<any>>()
+
+/**
+ * Get the last calculated volume data range
+ */
+export function getVolumeDataRange(): { min: number; max: number } | null {
+  return lastVolumeDataRange
+}
+
 /**
  * Create a Cornerstone3D volume from DICOM images
+ * Uses manual pixel data copying to handle blob URLs correctly
  */
-export async function createVolumeFromImages(
+export function createVolumeFromImages(
   images: DicomImage[],
   volumeId: string
 ): Promise<any> {
   if (images.length === 0) {
-    throw new Error('No images provided')
+    return Promise.reject(new Error('No images provided'))
   }
 
-  // Initialize Cornerstone3D if not already done
-  await initCornerstone3D()
-  const cs3D = getCornerstone3D()
-  if (!cs3D) {
-    throw new Error('Cornerstone3D not initialized')
+  // Full volume ID with scheme - computed synchronously
+  const streamingVolumeId = `cornerstoneStreamingImageVolume:${volumeId}`
+
+  // SYNCHRONOUS mutex check - must happen before any async work
+  const existingPromise = volumeLoadingPromises.get(streamingVolumeId)
+  if (existingPromise) {
+    console.log(`Volume ${volumeId} is already loading, waiting...`)
+    return existingPromise
   }
 
-  const { cache, metaData } = cs3D
+  // Create the loading promise immediately and store it (synchronous mutex lock)
+  // This ensures subsequent calls will wait for this promise
+  const loadPromise = (async () => {
+    try {
+      // Initialize Cornerstone3D if not already done
+      await initCornerstone3D()
+      const cs3D = getCornerstone3D()
+      if (!cs3D) {
+        throw new Error('Cornerstone3D not initialized')
+      }
 
-  // Import volumeLoader from @cornerstonejs/core
-  const { volumeLoader } = await import('@cornerstonejs/core')
+      // Check if volume already exists and is loaded
+      const existingVolume = cs3D.cache.getVolume(streamingVolumeId)
+      if (existingVolume && existingVolume.loadStatus?.loaded) {
+        console.log(`Volume ${volumeId} already loaded, returning cached`)
+        return existingVolume
+      }
 
-  // Check if volume already exists in cache
-  const existingVolume = cache.getVolume(volumeId)
-  if (existingVolume) {
-    return existingVolume
-  }
+      // Actually create and load the volume
+      return await doCreateVolumeFromImages(images, volumeId, streamingVolumeId, cs3D)
+    } finally {
+      // Remove from loading map when done (mutex unlock)
+      volumeLoadingPromises.delete(streamingVolumeId)
+    }
+  })()
 
-  // Create image IDs array
-  const imageIds = images.map((img) => img.imageId)
+  // Store promise SYNCHRONOUSLY before returning
+  volumeLoadingPromises.set(streamingVolumeId, loadPromise)
 
-  // Register metadata provider for all images (single provider handles all)
+  return loadPromise
+}
+
+/**
+ * Internal function to actually create and load the volume
+ */
+async function doCreateVolumeFromImages(
+  images: DicomImage[],
+  volumeId: string,
+  streamingVolumeId: string,
+  cs3D: any
+): Promise<any> {
+  const { metaData } = cs3D
+
+  // Import required modules
+  const coreModule = await import('@cornerstonejs/core')
+  const { volumeLoader, imageLoader } = coreModule
+
+  // Sort images by position for correct slice ordering
+  const sortedImages = [...images].sort((a, b) => {
+    const posA = a.imagePositionPatient?.[2] || 0
+    const posB = b.imagePositionPatient?.[2] || 0
+    return posA - posB
+  })
+
+  // Create image IDs array from sorted images
+  const imageIds = sortedImages.map((img) => img.imageId)
+
+  // Register metadata provider for all images
   metaData.addProvider(
     (type: string, imgId: string) => {
-      const image = images.find((img) => img.imageId === imgId)
+      const image = sortedImages.find((img) => img.imageId === imgId)
       
       if (!image || !image.metadata) return undefined
 
@@ -90,8 +150,23 @@ export async function createVolumeFromImages(
 
       if (type === 'voiLutModule') {
         return {
-          windowCenter: image.windowCenter || 40,
-          windowWidth: image.windowWidth || 400,
+          windowCenter: image.metadata.floatString('x00281050') || 40,
+          windowWidth: image.metadata.floatString('x00281051') || 400,
+        }
+      }
+
+      if (type === 'modalityLutModule') {
+        return {
+          rescaleIntercept: image.metadata.floatString('x00281052') || 0,
+          rescaleSlope: image.metadata.floatString('x00281053') || 1,
+          rescaleType: image.metadata.string('x00281054') || 'HU',
+        }
+      }
+
+      if (type === 'scalingModule') {
+        return {
+          rescaleIntercept: image.metadata.floatString('x00281052') || 0,
+          rescaleSlope: image.metadata.floatString('x00281053') || 1,
         }
       }
 
@@ -100,57 +175,105 @@ export async function createVolumeFromImages(
     10000 // priority
   )
 
-  // Create volume using streaming image volume loader
-  // Volume ID must start with the loader scheme: 'cornerstoneStreamingImageVolume:'
-  const streamingVolumeId = `cornerstoneStreamingImageVolume:${volumeId}`
-  
-  // Check cache with streaming volume ID
-  const existingStreamingVolume = cache.getVolume(streamingVolumeId)
-  if (existingStreamingVolume) {
-    return existingStreamingVolume
-  }
-  
+  // Create volume structure
   const volume = await volumeLoader.createAndCacheVolume(streamingVolumeId, {
     imageIds,
   })
 
-  // Load the volume
-  await volume.load()
+  // Get volume scalar data array
+  const scalarData = volume.getScalarData()
+  const dimensions = volume.dimensions
+  const [cols, rows, numSlices] = dimensions
+  const pixelsPerSlice = rows * cols
+
+  // Get rescale values from first image
+  const firstImage = sortedImages[0]
+  const rescaleSlope = firstImage?.metadata?.floatString?.('x00281053') || 1
+  const rescaleIntercept = firstImage?.metadata?.floatString?.('x00281052') || 0
+
+  // Track data range for proper VOI
+  let dataMin = Infinity
+  let dataMax = -Infinity
+  let loadedSlices = 0
+
+  // Load each image and copy pixel data manually
+  // This bypasses the streaming loader which has issues with blob URLs
+  console.log(`Loading ${numSlices} slices manually...`)
+
+  // Load images in batches for better performance
+  const batchSize = 20
+  for (let batchStart = 0; batchStart < numSlices; batchStart += batchSize) {
+    const batchEnd = Math.min(batchStart + batchSize, numSlices)
+    const batchPromises: Promise<void>[] = []
+
+    for (let sliceIdx = batchStart; sliceIdx < batchEnd; sliceIdx++) {
+      const imageId = imageIds[sliceIdx]
+      
+      batchPromises.push(
+        (async () => {
+          try {
+            // Load image using Cornerstone image loader
+            const image = await imageLoader.loadAndCacheImage(imageId)
+            
+            if (!image) {
+              console.warn(`Failed to load image ${sliceIdx}: no image returned`)
+              return
+            }
+
+            // Get pixel data from loaded image
+            const pixelData = image.getPixelData()
+            
+            if (!pixelData || pixelData.length === 0) {
+              console.warn(`Failed to load image ${sliceIdx}: no pixel data`)
+              return
+            }
+
+            // Calculate offset in volume for this slice
+            const sliceOffset = sliceIdx * pixelsPerSlice
+
+            // Copy pixel data to volume, applying rescale slope/intercept
+            // This converts raw pixel values to proper values (e.g., HU for CT)
+            for (let i = 0; i < pixelsPerSlice && i < pixelData.length; i++) {
+              const rawValue = pixelData[i]
+              // Apply rescale: scaledValue = rawValue * slope + intercept
+              const scaledValue = rawValue * rescaleSlope + rescaleIntercept
+              scalarData[sliceOffset + i] = scaledValue
+
+              // Track data range
+              if (scaledValue < dataMin) dataMin = scaledValue
+              if (scaledValue > dataMax) dataMax = scaledValue
+            }
+
+            loadedSlices++
+          } catch (error) {
+            console.warn(`Failed to load slice ${sliceIdx}:`, error)
+          }
+        })()
+      )
+    }
+
+    // Wait for batch to complete
+    await Promise.all(batchPromises)
+    
+    // Log progress
+    if ((batchEnd % 100 === 0) || batchEnd === numSlices) {
+      console.log(`Loaded ${loadedSlices}/${numSlices} slices...`)
+    }
+  }
+
+  // Store data range for VOI calculation
+  if (dataMin !== Infinity && dataMax !== -Infinity) {
+    lastVolumeDataRange = { min: dataMin, max: dataMax }
+  }
+
+  // Mark volume as loaded
+  volume.loadStatus.loaded = true
+  volume.loadStatus.loading = false
+
+  // Volume data has been modified - the rendering will pick up changes on next render
+
+  console.log(`Volume ${volumeId} manually loaded: ${loadedSlices}/${numSlices} slices, range: ${dataMin} to ${dataMax}`)
 
   return volume
 }
 
-/**
- * Calculate spacing between slices from image positions
- */
-function calculateSpacingBetweenSlices(images: DicomImage[]): number {
-  if (images.length < 2) return 1.0
-
-  const sorted = [...images].sort((a, b) => {
-    const posA = a.imagePositionPatient?.[2] || 0
-    const posB = b.imagePositionPatient?.[2] || 0
-    return posA - posB
-  })
-
-  let totalSpacing = 0
-  let count = 0
-
-  for (let i = 1; i < sorted.length; i++) {
-    const prev = sorted[i - 1]
-    const curr = sorted[i]
-
-    if (prev.imagePositionPatient && curr.imagePositionPatient) {
-      const dx = curr.imagePositionPatient[0] - prev.imagePositionPatient[0]
-      const dy = curr.imagePositionPatient[1] - prev.imagePositionPatient[1]
-      const dz = curr.imagePositionPatient[2] - prev.imagePositionPatient[2]
-      const distance = Math.sqrt(dx * dx + dy * dy + dz * dz)
-
-      if (distance > 0) {
-        totalSpacing += distance
-        count++
-      }
-    }
-  }
-
-  return count > 0 ? totalSpacing / count : 1.0
-}
