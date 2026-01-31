@@ -444,6 +444,36 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
     )
   }
 
+  // Volume viewport scroll handler
+  // StackScrollTool only works with stack viewports, NOT with orthographic/volume viewports
+  // For volume viewports in MPR, we need to use viewport.scroll() API directly
+  useEffect(() => {
+    const element = elementRef.current
+    if (!element) return
+
+    const handleWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      
+      const viewport = viewportRef.current
+      if (!viewport) return
+
+      // Volume viewport scroll - delta determines direction
+      // Positive deltaY = scroll down = next slice, Negative deltaY = scroll up = previous slice
+      const delta = e.deltaY > 0 ? 1 : -1
+      
+      try {
+        // Use the volume viewport scroll API
+        viewport.scroll(delta, true) // true = scroll through slices
+        viewport.render()
+      } catch (err) {
+        console.error('MPR scroll error:', err)
+      }
+    }
+
+    element.addEventListener('wheel', handleWheel, { passive: false })
+    return () => element.removeEventListener('wheel', handleWheel)
+  }, [plane, viewportId])
+
   return (
     <div
       className="mpr-viewer-panel"

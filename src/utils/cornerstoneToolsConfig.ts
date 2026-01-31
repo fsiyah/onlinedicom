@@ -128,8 +128,12 @@ async function doToolsInitialization(): Promise<any> {
           ],
         })
 
-        // Stack scroll on mouse wheel
-        toolGroup.setToolActive(StackScrollTool.toolName)
+        // Stack scroll on mouse wheel - MUST include Wheel binding in Cornerstone3D v2+
+        // Note: This works for stack viewports. For volume/orthographic viewports (MPR),
+        // we use a custom wheel handler with viewport.scroll() in MPRViewerPanel
+        toolGroup.setToolActive(StackScrollTool.toolName, {
+          bindings: [{ mouseButton: ToolEnums.MouseBindings.Wheel }],
+        })
       }
     }
 
