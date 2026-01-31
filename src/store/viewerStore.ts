@@ -171,9 +171,9 @@ function addToolsClassic(tools: any) {
   addIf(tools.LengthTool)
   addIf(tools.RectangleRoiTool)
 
-  // Ellipse variants
+  // Ellipse variants - some builds use EllipticalRoiTool instead of EllipseRoiTool
+  addIf(tools.EllipticalRoiTool)
   addIf(tools.EllipseRoiTool)
-  addIf((tools as any).EllipticalRoiTool)
 
   // Optional (if you ever need them)
   addIf(tools.AngleTool)

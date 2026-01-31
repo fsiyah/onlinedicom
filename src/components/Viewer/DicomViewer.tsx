@@ -8,12 +8,12 @@ interface DicomViewerProps {
   imageIndex: number
 }
 
-type MeasureTool = 'None' | 'Length' | 'Angle' | 'RectangleRoi' | 'EllipseRoi'
+type MeasureTool = 'None' | 'Length' | 'Angle' | 'RectangleRoi' | 'EllipticalRoi'
 const MEASURE_TOOLS: Exclude<MeasureTool, 'None'>[] = [
   'Length',
   'Angle',
   'RectangleRoi',
-  'EllipseRoi',
+  'EllipticalRoi',
 ]
 
 const DicomViewer: React.FC<DicomViewerProps> = ({ studyId, seriesId, imageIndex }) => {
@@ -99,7 +99,9 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ studyId, seriesId, imageIndex
       if (tools.LengthTool) safe(() => addForEl(element, tools.LengthTool))
       if (tools.AngleTool) safe(() => addForEl(element, tools.AngleTool))
       if (tools.RectangleRoiTool) safe(() => addForEl(element, tools.RectangleRoiTool))
-      if (tools.EllipseRoiTool) safe(() => addForEl(element, tools.EllipseRoiTool))
+      // Some cornerstone-tools builds use EllipticalRoiTool instead of EllipseRoiTool
+      const ellipseTool = tools.EllipticalRoiTool || tools.EllipseRoiTool
+      if (ellipseTool) safe(() => addForEl(element, ellipseTool))
       if (tools.WwwcTool) safe(() => addForEl(element, tools.WwwcTool))
       if (tools.PanTool) safe(() => addForEl(element, tools.PanTool))
       if (tools.ZoomTool) safe(() => addForEl(element, tools.ZoomTool))
@@ -156,7 +158,7 @@ const DicomViewer: React.FC<DicomViewerProps> = ({ studyId, seriesId, imageIndex
         : measurementTools.roi
           ? 'RectangleRoi'
           : measurementTools.ellipse
-            ? 'EllipseRoi'
+            ? 'EllipticalRoi'
             : 'None'
     setActiveTool(tool)
     activateMeasureTool(tool)
