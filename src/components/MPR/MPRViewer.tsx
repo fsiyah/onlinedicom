@@ -199,6 +199,12 @@ const MPRViewer: React.FC = () => {
     })
   }, [])
 
+  // Handle double-click on panel to toggle between single and quad view
+  const handlePanelDoubleClick = useCallback((plane: Plane) => {
+    setActivePlane(plane)
+    setLayout((currentLayout) => currentLayout === '1x1' ? '2x2' : '1x1')
+  }, [])
+
   // Handle rotation changes - when rotation changes, recalculate cross-reference and slice indices
   const handleRotationChange = useCallback(
     (plane: Plane, rotation: ObliqueRotation) => {
@@ -245,20 +251,29 @@ const MPRViewer: React.FC = () => {
       <div className="mpr-toolbar">
         <div className="mpr-controls">
           <button
-            className={`plane-button ${activePlane === 'axial' ? 'active' : ''}`}
-            onClick={() => setActivePlane('axial')}
+            className={`plane-button ${layout === '1x1' && activePlane === 'axial' ? 'active' : ''}`}
+            onClick={() => {
+              setActivePlane('axial')
+              setLayout('1x1')
+            }}
           >
             Axial
           </button>
           <button
-            className={`plane-button ${activePlane === 'coronal' ? 'active' : ''}`}
-            onClick={() => setActivePlane('coronal')}
+            className={`plane-button ${layout === '1x1' && activePlane === 'coronal' ? 'active' : ''}`}
+            onClick={() => {
+              setActivePlane('coronal')
+              setLayout('1x1')
+            }}
           >
             Coronal
           </button>
           <button
-            className={`plane-button ${activePlane === 'sagittal' ? 'active' : ''}`}
-            onClick={() => setActivePlane('sagittal')}
+            className={`plane-button ${layout === '1x1' && activePlane === 'sagittal' ? 'active' : ''}`}
+            onClick={() => {
+              setActivePlane('sagittal')
+              setLayout('1x1')
+            }}
           >
             Sagittal
           </button>
@@ -301,6 +316,7 @@ const MPRViewer: React.FC = () => {
               syncImageIndex={imageIndices[activePlane]}
               imageIndices={imageIndices}
               onViewportReady={handleViewportReady}
+              onDoubleClick={handlePanelDoubleClick}
             />
           </div>
         )}
@@ -325,6 +341,7 @@ const MPRViewer: React.FC = () => {
                 syncImageIndex={imageIndices.axial}
                 imageIndices={imageIndices}
                 onViewportReady={handleViewportReady}
+                onDoubleClick={handlePanelDoubleClick}
               />
             </div>
             <div className="mpr-panel">
@@ -346,6 +363,7 @@ const MPRViewer: React.FC = () => {
                 syncImageIndex={imageIndices.coronal}
                 imageIndices={imageIndices}
                 onViewportReady={handleViewportReady}
+                onDoubleClick={handlePanelDoubleClick}
               />
             </div>
             <div className="mpr-panel">
@@ -367,6 +385,7 @@ const MPRViewer: React.FC = () => {
                 syncImageIndex={imageIndices.sagittal}
                 imageIndices={imageIndices}
                 onViewportReady={handleViewportReady}
+                onDoubleClick={handlePanelDoubleClick}
               />
             </div>
             <div className="mpr-panel">

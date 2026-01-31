@@ -27,6 +27,7 @@ interface MPRViewerPanelProps {
   slabThickness?: Record<Plane, number>
   allRotations?: Record<Plane, ObliqueRotation>
   onViewportReady?: (plane: Plane, viewportId: string) => void
+  onDoubleClick?: (plane: Plane) => void
 }
 
 const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
@@ -49,6 +50,7 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
     sagittal: { pitch: 0, yaw: 0, roll: 0 },
   },
   onViewportReady,
+  onDoubleClick,
 }) => {
   const elementRef = useRef<HTMLDivElement>(null)
   const viewportRef = useRef<any>(null)
@@ -474,6 +476,11 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
     return () => element.removeEventListener('wheel', handleWheel)
   }, [plane, viewportId])
 
+  // Handle double-click to switch to single view
+  const handleDoubleClick = useCallback(() => {
+    onDoubleClick?.(plane)
+  }, [onDoubleClick, plane])
+
   return (
     <div
       className="mpr-viewer-panel"
@@ -482,6 +489,7 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
         borderWidth: '3px',
         borderStyle: 'solid',
       }}
+      onDoubleClick={handleDoubleClick}
     >
       <div className="plane-label" style={{ color: getBorderColor() }}>
         {plane.toUpperCase()}
