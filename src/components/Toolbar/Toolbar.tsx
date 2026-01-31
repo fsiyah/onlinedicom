@@ -17,6 +17,7 @@ import {
   Settings,
   Grid,
   Server,
+  LayoutGrid,
 } from 'lucide-react'
 import ExportDialog from '../Export/ExportDialog'
 import PACSDialog from '../PACS/PACSDialog'
@@ -41,6 +42,8 @@ const Toolbar: React.FC = () => {
   const previousImage = useViewerStore((state) => state.previousImage)
   const measurementTools = useViewerStore((state) => state.measurementTools)
   const setMeasurementTool = useViewerStore((state) => state.setMeasurementTool)
+  const viewMode = useViewerStore((state) => state.viewMode)
+  const setViewMode = useViewerStore((state) => state.setViewMode)
 
   const [showExportDialog, setShowExportDialog] = useState(false)
   const [showPACSDialog, setShowPACSDialog] = useState(false)
@@ -193,6 +196,14 @@ const Toolbar: React.FC = () => {
 
       <div className="toolbar-section">
         <div className="toolbar-group">
+          <div className="toolbar-divider" />
+          <button
+            className={`toolbar-button ${viewMode === 'MPR' ? 'active' : ''}`}
+            onClick={() => setViewMode(viewMode === 'MPR' ? '2D' : 'MPR')}
+            title="MPR (Multi-Planar Reconstruction)"
+          >
+            <LayoutGrid size={18} />
+          </button>
           <button className="toolbar-button" onClick={() => setShowExportDialog(true)} title="Export">
             <Download size={18} />
           </button>

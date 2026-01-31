@@ -6,10 +6,15 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 3000,
-    open: true
+    open: true,
+    // Required headers for SharedArrayBuffer support (needed by Cornerstone3D)
+    headers: {
+      'Cross-Origin-Opener-Policy': 'same-origin',
+      'Cross-Origin-Embedder-Policy': 'require-corp',
+    },
   },
   build: {
     outDir: 'dist',
     sourcemap: true
-  }
+  },
 })

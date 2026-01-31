@@ -121,3 +121,20 @@
   color: var(--text-secondary);
   font-size: 16px;
 }
+
+.mpr-warning {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  font-size: 14px;
+  padding: 32px;
+  text-align: center;
+}
+
+.mpr-warning p {
+  margin: 8px 0;
+}

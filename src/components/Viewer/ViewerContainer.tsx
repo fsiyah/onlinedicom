@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import { useViewerStore } from '../../store/viewerStore'
 import DicomViewer from './DicomViewer'
+import MPRViewer from '../MPR/MPRViewer'
 import SliceNavigator from '../SliceNavigator/SliceNavigator'
 import ControlsHelp from '../ControlsHelp/ControlsHelp'
 import './ViewerContainer.css'
@@ -9,6 +10,7 @@ const ViewerContainer: React.FC = () => {
   const activeStudyId = useViewerStore((state) => state.activeStudyId)
   const activeSeriesId = useViewerStore((state) => state.activeSeriesId)
   const activeImageIndex = useViewerStore((state) => state.activeImageIndex)
+  const viewMode = useViewerStore((state) => state.viewMode)
   const studies = useViewerStore((state) => state.studies)
   const openViewers = useViewerStore((state) => state.openViewers)
 
@@ -46,6 +48,16 @@ const ViewerContainer: React.FC = () => {
     )
   }
 
+  // Show MPR viewer if view mode is MPR
+  if (viewMode === 'MPR') {
+    return (
+      <div className="viewer-container">
+        <MPRViewer />
+      </div>
+    )
+  }
+
+  // Default 2D viewer
   return (
     <div className="viewer-container">
       <DicomViewer

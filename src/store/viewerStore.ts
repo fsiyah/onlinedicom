@@ -43,6 +43,10 @@ export interface DicomImage {
   metadata?: any
   sliceLocation?: number
   imagePositionZ?: number
+  imagePositionPatient?: [number, number, number] // [x, y, z] in patient coordinates
+  imageOrientationPatient?: [number, number, number, number, number, number] // [x1, y1, z1, x2, y2, z2] row/column direction cosines
+  pixelSpacing?: [number, number] // [row, column] spacing in mm
+  sliceThickness?: number // slice thickness in mm
 }
 
 export interface DicomSeries {
@@ -88,6 +92,7 @@ export interface ViewerState {
     roi: boolean
     ellipse: boolean
   }
+  viewMode: '2D' | 'MPR' // View mode: 2D or MPR
   isInitialized: boolean
 }
 
@@ -113,6 +118,7 @@ interface ViewerActions {
   deleteStudy: (studyId: string) => void
   fitToWindow: () => void
   setMeasurementTool: (tool: 'length' | 'angle' | 'roi' | 'ellipse' | null) => void
+  setViewMode: (mode: '2D' | 'MPR') => void
 }
 
 const initialState: ViewerState = {
@@ -134,6 +140,7 @@ const initialState: ViewerState = {
     roi: false,
     ellipse: false,
   },
+  viewMode: '2D',
   isInitialized: false,
 }
 
@@ -331,12 +338,48 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
         const sliceLocationStr = dataset.floatString('x00201041')
         const sliceLocation = sliceLocationStr ? parseFloat(sliceLocationStr) : undefined
 
+        // ImagePositionPatient (x00200032) - position of top-left corner of first pixel in patient coordinates
+        let imagePositionPatient: [number, number, number] | undefined
         let imagePositionZ: number | undefined
-        const imagePositionPatient = dataset.string('x00200032')
-        if (imagePositionPatient) {
-          const positions = imagePositionPatient.split('\\').map((v) => Number(v))
-          if (positions.length >= 3 && Number.isFinite(positions[2])) imagePositionZ = positions[2]
+        const imagePositionPatientStr = dataset.string('x00200032')
+        if (imagePositionPatientStr) {
+          const positions = imagePositionPatientStr.split('\\').map((v) => Number(v))
+          if (positions.length >= 3 && positions.every((v) => Number.isFinite(v))) {
+            imagePositionPatient = [positions[0], positions[1], positions[2]] as [number, number, number]
+            imagePositionZ = positions[2]
+          }
         }
+
+        // ImageOrientationPatient (x00200037) - direction cosines of row/column
+        let imageOrientationPatient: [number, number, number, number, number, number] | undefined
+        const imageOrientationPatientStr = dataset.string('x00200037')
+        if (imageOrientationPatientStr) {
+          const orientations = imageOrientationPatientStr.split('\\').map((v) => Number(v))
+          if (orientations.length >= 6 && orientations.every((v) => Number.isFinite(v))) {
+            imageOrientationPatient = [
+              orientations[0],
+              orientations[1],
+              orientations[2],
+              orientations[3],
+              orientations[4],
+              orientations[5],
+            ] as [number, number, number, number, number, number]
+          }
+        }
+
+        // PixelSpacing (x00280030) - physical spacing between pixels
+        let pixelSpacing: [number, number] | undefined
+        const pixelSpacingStr = dataset.string('x00280030')
+        if (pixelSpacingStr) {
+          const spacing = pixelSpacingStr.split('\\').map((v) => Number(v))
+          if (spacing.length >= 2 && spacing.every((v) => Number.isFinite(v))) {
+            pixelSpacing = [spacing[0], spacing[1]] as [number, number]
+          }
+        }
+
+        // SliceThickness (x00180050)
+        const sliceThicknessStr = dataset.floatString('x00180050')
+        const sliceThickness = sliceThicknessStr ? parseFloat(sliceThicknessStr) : undefined
 
         let study = studiesMap.get(studyInstanceUID)
         if (!study) {
@@ -384,6 +427,10 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
           metadata: dataset,
           sliceLocation,
           imagePositionZ,
+          imagePositionPatient,
+          imageOrientationPatient,
+          pixelSpacing,
+          sliceThickness,
         }
 
         series.images.push(image)
@@ -542,5 +589,9 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
         ellipse: tool === 'ellipse',
       },
     })
+  },
+
+  setViewMode: (mode: '2D' | 'MPR') => {
+    set({ viewMode: mode })
   },
 }))
