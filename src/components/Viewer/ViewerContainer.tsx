@@ -2,6 +2,7 @@ import React from 'react'
 import { useViewerStore } from '../../store/viewerStore'
 import DicomViewer from './DicomViewer'
 import MPRViewer from '../MPR/MPRViewer'
+import Viewer3D from '../Viewer3D/Viewer3D'
 import SliceNavigator from '../SliceNavigator/SliceNavigator'
 import ControlsHelp from '../ControlsHelp/ControlsHelp'
 import './ViewerContainer.css'
@@ -51,6 +52,14 @@ const ViewerContainer: React.FC = () => {
     return (
       <div className="viewer-container">
         <MPRViewer />
+      </div>
+    )
+  }
+
+  if (viewMode === '3D') {
+    return (
+      <div className="viewer-container">
+        <Viewer3D />
       </div>
     )
   }

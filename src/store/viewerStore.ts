@@ -92,7 +92,7 @@ export interface ViewerState {
     roi: boolean
     ellipse: boolean
   }
-  viewMode: '2D' | 'MPR' // View mode: 2D or MPR
+  viewMode: '2D' | 'MPR' | '3D' // View mode: 2D, MPR, or 3D
   isInitialized: boolean
 }
 
@@ -118,7 +118,7 @@ interface ViewerActions {
   deleteStudy: (studyId: string) => void
   fitToWindow: () => void
   setMeasurementTool: (tool: 'length' | 'angle' | 'roi' | 'ellipse' | null) => void
-  setViewMode: (mode: '2D' | 'MPR') => void
+  setViewMode: (mode: '2D' | 'MPR' | '3D') => void
 }
 
 const initialState: ViewerState = {
@@ -589,7 +589,7 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
     })
   },
 
-  setViewMode: (mode: '2D' | 'MPR') => {
+  setViewMode: (mode: '2D' | 'MPR' | '3D') => {
     set({ viewMode: mode })
   },
 }))

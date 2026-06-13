@@ -18,6 +18,7 @@ import {
   Grid,
   Server,
   LayoutGrid,
+  Box,
 } from 'lucide-react'
 import ExportDialog from '../Export/ExportDialog'
 import PACSDialog from '../PACS/PACSDialog'
@@ -203,6 +204,13 @@ const Toolbar: React.FC = () => {
             title="MPR (Multi-Planar Reconstruction)"
           >
             <LayoutGrid size={18} />
+          </button>
+          <button
+            className={`toolbar-button ${viewMode === '3D' ? 'active' : ''}`}
+            onClick={() => setViewMode(viewMode === '3D' ? '2D' : '3D')}
+            title="3D View"
+          >
+            <Box size={18} />
           </button>
           <button className="toolbar-button" onClick={() => setShowExportDialog(true)} title="Export">
             <Download size={18} />
