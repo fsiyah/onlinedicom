@@ -132,7 +132,7 @@ async function doToolsInitialization(): Promise<any> {
         // Note: This works for stack viewports. For volume/orthographic viewports (MPR),
         // we use a custom wheel handler with viewport.scroll() in MPRViewerPanel
         toolGroup.setToolActive(StackScrollTool.toolName, {
-          bindings: [{ mouseButton: ToolEnums.MouseBindings.Wheel }],
+          bindings: [{ mouseButton: (ToolEnums.MouseBindings as any).Wheel }],
         })
       }
     }

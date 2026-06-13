@@ -46,25 +46,25 @@ export class PacsService {
     this.config = config
   }
 
-  async queryStudies(query: PacsQuery): Promise<PacsStudy[]> {
+  async queryStudies(_query: PacsQuery): Promise<PacsStudy[]> {
     // TODO: Implement C-FIND SCU for study query
     // This would use a DICOM network library like dcmjs or dcmnet
     console.warn('PACS query not fully implemented. Requires DICOM network library.')
     return []
   }
 
-  async querySeries(studyInstanceUID: string): Promise<PacsSeries[]> {
+  async querySeries(_studyInstanceUID: string): Promise<PacsSeries[]> {
     // TODO: Implement C-FIND SCU for series query
     console.warn('PACS series query not fully implemented.')
     return []
   }
 
-  async retrieveStudy(studyInstanceUID: string): Promise<void> {
+  async retrieveStudy(_studyInstanceUID: string): Promise<void> {
     // TODO: Implement C-MOVE SCU to retrieve study
     console.warn('PACS retrieve not fully implemented.')
   }
 
-  async storeInstance(file: File): Promise<boolean> {
+  async storeInstance(_file: File): Promise<boolean> {
     // TODO: Implement C-STORE SCU to send instance to PACS
     console.warn('PACS store not fully implemented.')
     return false

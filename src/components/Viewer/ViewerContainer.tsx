@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react'
+import React from 'react'
 import { useViewerStore } from '../../store/viewerStore'
 import DicomViewer from './DicomViewer'
 import MPRViewer from '../MPR/MPRViewer'
@@ -21,8 +21,6 @@ const ViewerContainer: React.FC = () => {
     return (
       <div className="viewer-container multi-viewer">
         {openViewers.map((viewer) => {
-          const study = studies.find((s) => s.id === viewer.studyId)
-          const series = study?.series.find((s) => s.id === viewer.seriesId)
           return (
             <div key={viewer.id} className="viewer-panel">
               <DicomViewer

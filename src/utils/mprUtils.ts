@@ -556,8 +556,6 @@ export async function reformatVolumeSlice(
 
       // Sample along slab thickness (MIP - Maximum Intensity Projection)
       let maxIntensity = 0
-      const sampleCount = endSlice - startSlice + 1
-
       for (let s = startSlice; s <= endSlice; s++) {
         const sliceImage = volume.images[s]
         if (!sliceImage) continue

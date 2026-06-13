@@ -335,8 +335,7 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
         const seriesDescription = dataset.string('x0008103e') ?? undefined
 
         // Sorting metadata for stacks (CT, etc.)
-        const sliceLocationStr = dataset.floatString('x00201041')
-        const sliceLocation = sliceLocationStr ? parseFloat(sliceLocationStr) : undefined
+        const sliceLocation = dataset.floatString('x00201041') ?? undefined
 
         // ImagePositionPatient (x00200032) - position of top-left corner of first pixel in patient coordinates
         let imagePositionPatient: [number, number, number] | undefined
@@ -378,8 +377,7 @@ export const useViewerStore = create<ViewerState & ViewerActions>((set, get) => 
         }
 
         // SliceThickness (x00180050)
-        const sliceThicknessStr = dataset.floatString('x00180050')
-        const sliceThickness = sliceThicknessStr ? parseFloat(sliceThicknessStr) : undefined
+        const sliceThickness = dataset.floatString('x00180050') ?? undefined
 
         let study = studiesMap.get(studyInstanceUID)
         if (!study) {

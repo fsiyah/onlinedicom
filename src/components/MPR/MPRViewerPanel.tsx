@@ -35,20 +35,6 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
   seriesId,
   plane,
   volume,
-  rotation = { pitch: 0, yaw: 0, roll: 0 },
-  crossReferencePoint,
-  onCrossReferenceChange,
-  onImageIndexChange,
-  onRotationChange,
-  onSlabThicknessChange,
-  syncImageIndex,
-  imageIndices = { axial: 0, coronal: 0, sagittal: 0 },
-  slabThickness: slabThicknessMap = { axial: 10, coronal: 10, sagittal: 10 },
-  allRotations = {
-    axial: { pitch: 0, yaw: 0, roll: 0 },
-    coronal: { pitch: 0, yaw: 0, roll: 0 },
-    sagittal: { pitch: 0, yaw: 0, roll: 0 },
-  },
   onViewportReady,
   onDoubleClick,
 }) => {
@@ -57,7 +43,6 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
   const volumeRef = useRef<any>(null)
   const renderingEngineRef = useRef<any>(null)
   const [isLoading, setIsLoading] = useState(false)
-  const [currentImageIndex, setCurrentImageIndex] = useState(0)
 
   const windowWidth = useViewerStore((s) => s.windowWidth)
   const windowCenter = useViewerStore((s) => s.windowCenter)
@@ -204,7 +189,7 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
 
         // Set volume to viewport BEFORE adding to tool group
         // CrosshairsTool requires viewports to have volumes attached
-        await viewport.setVolumes([
+        await (viewport as any).setVolumes([
           {
             volumeId: streamingVolumeId,
           },
@@ -241,8 +226,8 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
 
         // Get window/level from DICOM metadata (more accurate than store defaults)
         const firstImage = images[0];
-        const metaWC = firstImage?.metadata?.floatString?.('x00281050') || firstImage?.windowCenter;
-        const metaWW = firstImage?.metadata?.floatString?.('x00281051') || firstImage?.windowWidth;
+        const metaWC = firstImage?.metadata?.floatString?.('x00281050');
+        const metaWW = firstImage?.metadata?.floatString?.('x00281051');
         
         // Volume data is now rescaled to HU values in volumeUtils
         // So we use DICOM WC/WW directly (they are already in HU)
@@ -285,7 +270,7 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
 
         // Also try the voiRange approach with DICOM values
         try {
-          viewport.setProperties({
+          ;(viewport as any).setProperties({
             voiRange: {
               lower: voiLower,
               upper: voiUpper,
@@ -381,7 +366,7 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
 
     try {
       const viewport = viewportRef.current
-      viewport.setProperties({
+      ;(viewport as any).setProperties({
         voiRange: {
           lower: windowCenter - windowWidth / 2,
           upper: windowCenter + windowWidth / 2,
@@ -437,15 +422,6 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
     }
   }
 
-  if (images.length === 0) {
-    return (
-      <div className="mpr-viewer-panel" style={{ borderColor: getBorderColor() }}>
-        <div className="plane-label">{plane.toUpperCase()}</div>
-        <div className="error-message">No images available</div>
-      </div>
-    )
-  }
-
   // Volume viewport scroll handler
   // StackScrollTool only works with stack viewports, NOT with orthographic/volume viewports
   // For volume viewports in MPR, we need to use viewport.scroll() API directly
@@ -480,6 +456,15 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
   const handleDoubleClick = useCallback(() => {
     onDoubleClick?.(plane)
   }, [onDoubleClick, plane])
+
+  if (images.length === 0) {
+    return (
+      <div className="mpr-viewer-panel" style={{ borderColor: getBorderColor() }}>
+        <div className="plane-label">{plane.toUpperCase()}</div>
+        <div className="error-message">No images available</div>
+      </div>
+    )
+  }
 
   return (
     <div

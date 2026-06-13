@@ -1,7 +1,6 @@
 import React, { useRef, useEffect } from 'react'
 import { Canvas } from '@react-three/fiber'
-import { OrbitControls, Volume, VolumeControls } from '@react-three/drei'
-import * as THREE from 'three'
+import { OrbitControls } from '@react-three/drei'
 import './Viewer3D.css'
 
 interface Viewer3DProps {
