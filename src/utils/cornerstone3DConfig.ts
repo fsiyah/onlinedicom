@@ -14,6 +14,7 @@ export interface Cornerstone3DModules {
   volumeLoader: any
   Enums: any
   CONSTANTS: any
+  utilities: any
 }
 
 let cornerstone3D: Cornerstone3DModules | null = null
@@ -86,7 +87,8 @@ async function doInitialization(): Promise<Cornerstone3DModules> {
     metaData, 
     volumeLoader,
     Enums, 
-    CONSTANTS 
+    CONSTANTS,
+    utilities,
   } = coreModule
 
   // Initialize Cornerstone3D
@@ -164,6 +166,7 @@ async function doInitialization(): Promise<Cornerstone3DModules> {
     volumeLoader,
     Enums,
     CONSTANTS,
+    utilities,
   }
 
   cornerstone3DInitialized = true
