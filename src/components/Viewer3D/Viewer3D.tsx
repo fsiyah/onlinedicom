@@ -8,6 +8,14 @@ import './Viewer3D.css'
 
 type RenderingPreset = 'CT-Bone' | 'CT-Soft-Tissue' | 'CT-Muscle' | 'CT-Lung' | 'MR-Default'
 type BlendMode = 'composite' | 'mip'
+type TissueKey = 'lung' | 'soft' | 'contrast' | 'bone'
+
+const THICKNESS_MIN = 10
+const THICKNESS_MAX = 260
+const OPACITY_MIN = 5
+const OPACITY_MAX = 100
+const THICKNESS_DRAG_SENS = 0.6
+const OPACITY_DRAG_SENS = 0.35
 
 const RENDERING_ENGINE_ID = 'volume-3d-rendering-engine'
 const TOOL_GROUP_ID = 'volume-3d-tool-group'
@@ -20,7 +28,46 @@ const PRESETS: Array<{ label: string; value: RenderingPreset }> = [
   { label: 'MR', value: 'MR-Default' },
 ]
 
+const TISSUES: Array<{
+  key: TissueKey
+  label: string
+  range: [number, number]
+  color: [number, number, number]
+  opacity: number
+}> = [
+  { key: 'lung', label: 'Lung', range: [-950, -420], color: [0.35, 0.58, 1], opacity: 0.14 },
+  { key: 'soft', label: 'Soft', range: [-120, 180], color: [0.95, 0.52, 0.36], opacity: 0.28 },
+  { key: 'contrast', label: 'Contrast', range: [150, 520], color: [1, 0.22, 0.18], opacity: 0.5 },
+  { key: 'bone', label: 'Bone', range: [260, 2200], color: [0.96, 0.9, 0.76], opacity: 0.78 },
+]
+
 let toolsInitPromise: Promise<any> | null = null
+
+function configure3DMouseBindings(toolGroup: any, toolEnums: any): void {
+  toolGroup.setToolActive('TrackballRotate', {
+    bindings: [{ mouseButton: toolEnums.MouseBindings.Primary }],
+  })
+  toolGroup.setToolActive('Pan', {
+    bindings: [{ mouseButton: toolEnums.MouseBindings.Auxiliary }],
+  })
+  toolGroup.setToolActive('Zoom', {
+    bindings: [
+      { mouseButton: toolEnums.MouseBindings.Secondary },
+      {
+        mouseButton: toolEnums.MouseBindings.Primary,
+        modifierKey: toolEnums.KeyboardBindings.Ctrl,
+      },
+    ],
+  })
+  toolGroup.setToolActive('WindowLevel', {
+    bindings: [
+      {
+        mouseButton: toolEnums.MouseBindings.Primary,
+        modifierKey: toolEnums.KeyboardBindings.Shift,
+      },
+    ],
+  })
+}
 
 async function initialize3DToolGroup(viewportId: string): Promise<any> {
   if (!toolsInitPromise) {
@@ -31,7 +78,6 @@ async function initialize3DToolGroup(viewportId: string): Promise<any> {
         addTool,
         ToolGroupManager,
         TrackballRotateTool,
-        VolumeRotateMouseWheelTool,
         PanTool,
         ZoomTool,
         WindowLevelTool,
@@ -40,7 +86,7 @@ async function initialize3DToolGroup(viewportId: string): Promise<any> {
 
       await init()
 
-      ;[TrackballRotateTool, VolumeRotateMouseWheelTool, PanTool, ZoomTool, WindowLevelTool].forEach((tool) => {
+      ;[TrackballRotateTool, PanTool, ZoomTool, WindowLevelTool].forEach((tool) => {
         try {
           addTool(tool)
         } catch (error: any) {
@@ -58,39 +104,11 @@ async function initialize3DToolGroup(viewportId: string): Promise<any> {
         }
 
         toolGroup.addTool(TrackballRotateTool.toolName)
-        toolGroup.addTool(VolumeRotateMouseWheelTool.toolName)
         toolGroup.addTool(PanTool.toolName)
         toolGroup.addTool(ZoomTool.toolName)
         toolGroup.addTool(WindowLevelTool.toolName)
 
-        toolGroup.setToolActive(TrackballRotateTool.toolName, {
-          bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
-        })
-        toolGroup.setToolActive(VolumeRotateMouseWheelTool.toolName, {
-          bindings: [{ mouseButton: (ToolEnums.MouseBindings as any).Wheel }],
-        })
-        toolGroup.setToolActive(PanTool.toolName, {
-          bindings: [{ mouseButton: ToolEnums.MouseBindings.Auxiliary }],
-        })
-        toolGroup.setToolActive(ZoomTool.toolName, {
-          bindings: [
-            {
-              mouseButton: ToolEnums.MouseBindings.Secondary,
-            },
-            {
-              mouseButton: ToolEnums.MouseBindings.Primary,
-              modifierKey: ToolEnums.KeyboardBindings.Ctrl,
-            },
-          ],
-        })
-        toolGroup.setToolActive(WindowLevelTool.toolName, {
-          bindings: [
-            {
-              mouseButton: ToolEnums.MouseBindings.Primary,
-              modifierKey: ToolEnums.KeyboardBindings.Shift,
-            },
-          ],
-        })
+        configure3DMouseBindings(toolGroup, ToolEnums)
       }
 
       return { toolGroup, ToolGroupManager }
@@ -136,6 +154,25 @@ const Viewer3D: React.FC = () => {
   const [error, setError] = useState<string | null>(null)
   const [preset, setPreset] = useState<RenderingPreset>('CT-Bone')
   const [blendMode, setBlendMode] = useState<BlendMode>('composite')
+  const [tissueVisibility, setTissueVisibility] = useState<Record<TissueKey, boolean>>({
+    lung: false,
+    soft: true,
+    contrast: true,
+    bone: true,
+  })
+  const [tissueThickness, setTissueThickness] = useState(90)
+  const [opacityScale, setOpacityScale] = useState(70)
+  const [useTissueControls, setUseTissueControls] = useState(true)
+
+  const tissueThicknessRef = useRef(tissueThickness)
+  const opacityScaleRef = useRef(opacityScale)
+  const useTissueControlsRef = useRef(useTissueControls)
+  const blendModeRef = useRef(blendMode)
+
+  tissueThicknessRef.current = tissueThickness
+  opacityScaleRef.current = opacityScale
+  useTissueControlsRef.current = useTissueControls
+  blendModeRef.current = blendMode
 
   const study = useMemo(() => studies.find((s) => s.id === activeStudyId), [studies, activeStudyId])
   const series = useMemo(() => study?.series.find((s) => s.id === activeSeriesId), [study, activeSeriesId])
@@ -146,6 +183,57 @@ const Viewer3D: React.FC = () => {
   const volumeId = useMemo(() => `volume-${activeSeriesId || 'empty'}`, [activeSeriesId])
   const streamingVolumeId = useMemo(() => `cornerstoneStreamingImageVolume:${volumeId}`, [volumeId])
 
+  const applyTissueTransferFunction = useCallback(async (actor: any) => {
+    const { default: vtkColorTransferFunction } = await import('@kitware/vtk.js/Rendering/Core/ColorTransferFunction')
+    const { default: vtkPiecewiseFunction } = await import('@kitware/vtk.js/Common/DataModel/PiecewiseFunction')
+
+    const colorFunction = vtkColorTransferFunction.newInstance()
+    const opacityFunction = vtkPiecewiseFunction.newInstance()
+    const enabledTissues = TISSUES.filter((tissue) => tissueVisibility[tissue.key])
+    const dataRange = getVolumeDataRange()
+    const minValue = dataRange?.min ?? -1024
+    const maxValue = dataRange?.max ?? 3071
+    const ramp = Math.max(5, tissueThickness)
+    const opacityMultiplier = opacityScale / 100
+
+    colorFunction.addRGBPoint(minValue, 0, 0, 0)
+    opacityFunction.addPoint(minValue, 0)
+
+    enabledTissues.forEach((tissue) => {
+      const [start, end] = tissue.range
+      const [r, g, b] = tissue.color
+      const opacity = Math.min(1, tissue.opacity * opacityMultiplier)
+
+      colorFunction.addRGBPoint(start - ramp, 0, 0, 0)
+      colorFunction.addRGBPoint(start, r, g, b)
+      colorFunction.addRGBPoint(end, r, g, b)
+      colorFunction.addRGBPoint(end + ramp, 1, 1, 1)
+
+      opacityFunction.addPoint(start - ramp, 0)
+      opacityFunction.addPoint(start, opacity * 0.25)
+      opacityFunction.addPoint((start + end) / 2, opacity)
+      opacityFunction.addPoint(end, opacity)
+      opacityFunction.addPoint(end + ramp, 0)
+    })
+
+    colorFunction.addRGBPoint(maxValue, 1, 1, 1)
+    opacityFunction.addPoint(maxValue, 0)
+
+    const property = actor.getProperty()
+    property.setRGBTransferFunction(0, colorFunction)
+    property.setScalarOpacity(0, opacityFunction)
+    property.setUseGradientOpacity(0, true)
+    property.setGradientOpacityMinimumValue(0, Math.max(1, tissueThickness * 0.5))
+    property.setGradientOpacityMinimumOpacity(0, 0)
+    property.setGradientOpacityMaximumValue(0, Math.max(2, tissueThickness * 3))
+    property.setGradientOpacityMaximumOpacity(0, 1)
+    property.setShade(true)
+    property.setAmbient(0.18)
+    property.setDiffuse(0.82)
+    property.setSpecular(0.18)
+    property.setSpecularPower(12)
+  }, [opacityScale, tissueThickness, tissueVisibility])
+
   const applyRenderingStyle = useCallback(() => {
     const viewport = viewportRef.current
     if (!viewport) return
@@ -153,7 +241,7 @@ const Viewer3D: React.FC = () => {
     const actor = viewport.getDefaultActor?.()?.actor
     if (!actor) return
 
-    try {
+    const applyStyle = async () => {
       const core = getCornerstone3D()
       const coreEnums = core?.Enums
       const mapper = actor.getMapper?.()
@@ -162,12 +250,16 @@ const Viewer3D: React.FC = () => {
         blendMode === 'mip' ? coreEnums.BlendModes.MAXIMUM_INTENSITY_BLEND : coreEnums.BlendModes.COMPOSITE
       )
 
-      const presetName = blendMode === 'mip' ? 'CT-MIP' : preset
-      const presetDefinition = core?.CONSTANTS?.VIEWPORT_PRESETS?.find((item: any) => item.name === presetName)
-      const applyPreset = (core as any)?.utilities?.applyPreset
+      if (blendMode === 'composite' && useTissueControls) {
+        await applyTissueTransferFunction(actor)
+      } else {
+        const presetName = blendMode === 'mip' ? 'CT-MIP' : preset
+        const presetDefinition = core?.CONSTANTS?.VIEWPORT_PRESETS?.find((item: any) => item.name === presetName)
+        const applyPreset = (core as any)?.utilities?.applyPreset
 
-      if (presetDefinition && applyPreset) {
-        applyPreset(actor, presetDefinition)
+        if (presetDefinition && applyPreset) {
+          applyPreset(actor, presetDefinition)
+        }
       }
 
       const dataRange = getVolumeDataRange()
@@ -181,10 +273,21 @@ const Viewer3D: React.FC = () => {
       }
 
       viewport.render()
+    }
+
+    try {
+      void applyStyle()
     } catch (styleError) {
       console.warn('Failed to apply 3D rendering style:', styleError)
     }
-  }, [blendMode, preset, windowCenter, windowWidth])
+  }, [
+    applyTissueTransferFunction,
+    blendMode,
+    preset,
+    useTissueControls,
+    windowCenter,
+    windowWidth,
+  ])
 
   useEffect(() => {
     if (!isCompatible || !elementRef.current || !activeSeriesId) return
@@ -337,12 +440,135 @@ const Viewer3D: React.FC = () => {
     }
   }, [viewportId])
 
+  useEffect(() => {
+    const element = elementRef.current
+    if (!element) return
+
+    let tissueDrag: 'thickness' | 'opacity' | null = null
+    let lastY = 0
+    let rafId: number | null = null
+    let pendingThickness: number | null = null
+    let pendingOpacity: number | null = null
+
+    const scheduleTissueUpdate = () => {
+      if (rafId != null) return
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        if (pendingThickness != null) {
+          setTissueThickness(pendingThickness)
+          pendingThickness = null
+        }
+        if (pendingOpacity != null) {
+          setOpacityScale(pendingOpacity)
+          pendingOpacity = null
+        }
+      })
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      const viewport = viewportRef.current
+      if (!viewport) return
+
+      event.preventDefault()
+      const camera = viewport.getVtkActiveCamera?.()
+      if (!camera) return
+
+      camera.zoom?.(event.deltaY > 0 ? 0.9 : 1.1)
+      viewport.resetVolumeViewportClippingRange?.()
+      viewport.render()
+    }
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 2) return
+      if (blendModeRef.current === 'mip' || !useTissueControlsRef.current) return
+
+      if (event.shiftKey) {
+        tissueDrag = 'thickness'
+      } else if (event.ctrlKey) {
+        tissueDrag = 'opacity'
+      } else {
+        return
+      }
+
+      setUseTissueControls(true)
+      lastY = event.clientY
+      event.preventDefault()
+      event.stopPropagation()
+      element.setPointerCapture?.(event.pointerId)
+    }
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!tissueDrag) return
+
+      event.preventDefault()
+      event.stopPropagation()
+
+      const dy = lastY - event.clientY
+      lastY = event.clientY
+
+      if (tissueDrag === 'thickness') {
+        const next = Math.round(
+          Math.max(
+            THICKNESS_MIN,
+            Math.min(THICKNESS_MAX, tissueThicknessRef.current + dy * THICKNESS_DRAG_SENS)
+          ) / 5
+        ) * 5
+        pendingThickness = next
+      } else {
+        const next = Math.round(
+          Math.max(
+            OPACITY_MIN,
+            Math.min(OPACITY_MAX, opacityScaleRef.current + dy * OPACITY_DRAG_SENS)
+          ) / 5
+        ) * 5
+        pendingOpacity = next
+      }
+
+      scheduleTissueUpdate()
+    }
+
+    const onPointerUp = (event: PointerEvent) => {
+      if (!tissueDrag) return
+
+      tissueDrag = null
+      try {
+        element.releasePointerCapture?.(event.pointerId)
+      } catch {
+        // Ignore capture release errors.
+      }
+    }
+
+    element.addEventListener('wheel', handleWheel, { passive: false })
+    element.addEventListener('pointerdown', onPointerDown, { capture: true })
+    element.addEventListener('pointermove', onPointerMove, { capture: true })
+    element.addEventListener('pointerup', onPointerUp, { capture: true })
+    element.addEventListener('pointercancel', onPointerUp, { capture: true })
+
+    return () => {
+      element.removeEventListener('wheel', handleWheel)
+      element.removeEventListener('pointerdown', onPointerDown, { capture: true })
+      element.removeEventListener('pointermove', onPointerMove, { capture: true })
+      element.removeEventListener('pointerup', onPointerUp, { capture: true })
+      element.removeEventListener('pointercancel', onPointerUp, { capture: true })
+      if (rafId != null) cancelAnimationFrame(rafId)
+    }
+  }, [])
+
   const handleResetCamera = () => {
     const viewport = viewportRef.current
     if (!viewport) return
 
     viewport.resetCamera()
     viewport.render()
+  }
+
+  const toggleTissue = (key: TissueKey) => {
+    setUseTissueControls(true)
+    setBlendMode('composite')
+    setTissueVisibility((current) => ({
+      ...current,
+      [key]: !current[key],
+    }))
   }
 
   if (!images.length) {
@@ -406,6 +632,88 @@ const Viewer3D: React.FC = () => {
         <button className="viewer-3d-icon-button" onClick={handleResetCamera} title="Reset 3D Camera">
           <RefreshCw size={16} />
         </button>
+      </div>
+
+      <div className="viewer-3d-sidepanel">
+        <div className="viewer-3d-panel-header">
+          <div className="viewer-3d-panel-title">Fare Kontrolleri</div>
+          <button className="viewer-3d-small-icon" onClick={handleResetCamera} title="3D kamerayı sıfırla">
+            <RefreshCw size={14} />
+          </button>
+        </div>
+
+        <ul className="viewer-3d-mouse-help">
+          <li><kbd>Sol</kbd> sürükle — Döndür</li>
+          <li><kbd>Orta</kbd> sürükle — Kaydır</li>
+          <li><kbd>Sağ</kbd> sürükle — Yakınlaştır</li>
+          <li><kbd>Shift</kbd> + <kbd>Sol</kbd> — Pencere/seviye</li>
+          <li><kbd>Shift</kbd> + <kbd>Sağ</kbd> — Doku kalınlığı</li>
+          <li><kbd>Ctrl</kbd> + <kbd>Sağ</kbd> — Doku opaklığı</li>
+          <li><kbd>Tekerlek</kbd> — Yakınlaştır</li>
+        </ul>
+
+        <label className="viewer-3d-toggle">
+          <input
+            type="checkbox"
+            checked={useTissueControls}
+            disabled={blendMode === 'mip'}
+            onChange={(event) => setUseTissueControls(event.target.checked)}
+          />
+          Tissue editor
+        </label>
+
+        <div className="viewer-3d-tissue-list">
+          {TISSUES.map((tissue) => (
+            <button
+              key={tissue.key}
+              className={tissueVisibility[tissue.key] && useTissueControls && blendMode === 'composite' ? 'active' : ''}
+              disabled={blendMode === 'mip'}
+              onClick={() => toggleTissue(tissue.key)}
+            >
+              <span
+                className="viewer-3d-swatch"
+                style={{
+                  backgroundColor: `rgb(${tissue.color.map((value) => Math.round(value * 255)).join(', ')})`,
+                }}
+              />
+              {tissue.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="viewer-3d-slider">
+          <span>Doku kalınlığı</span>
+          <input
+            type="range"
+            min="10"
+            max="260"
+            step="5"
+            value={tissueThickness}
+            disabled={blendMode === 'mip' || !useTissueControls}
+            onChange={(event) => {
+              setUseTissueControls(true)
+              setTissueThickness(Number(event.target.value))
+            }}
+          />
+          <output>{tissueThickness} HU</output>
+        </label>
+
+        <label className="viewer-3d-slider">
+          <span>Doku opaklığı</span>
+          <input
+            type="range"
+            min="5"
+            max="100"
+            step="5"
+            value={opacityScale}
+            disabled={blendMode === 'mip' || !useTissueControls}
+            onChange={(event) => {
+              setUseTissueControls(true)
+              setOpacityScale(Number(event.target.value))
+            }}
+          />
+          <output>{opacityScale}%</output>
+        </label>
       </div>
 
       <div className="viewer-3d-info">

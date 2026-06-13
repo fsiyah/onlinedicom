@@ -99,6 +99,199 @@
   pointer-events: none;
 }
 
+.viewer-3d-sidepanel {
+  position: absolute;
+  top: 58px;
+  right: 12px;
+  width: 226px;
+  max-width: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  background: rgba(10, 14, 20, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.82);
+  pointer-events: auto;
+}
+
+.viewer-3d-panel-title {
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.viewer-3d-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.viewer-3d-small-icon {
+  width: 26px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+}
+
+.viewer-3d-small-icon:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+}
+
+.viewer-3d-mouse-help {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.viewer-3d-mouse-help li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.viewer-3d-mouse-help kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 1px 5px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: inherit;
+  line-height: 1.3;
+}
+
+.viewer-3d-mouse-modes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.viewer-3d-mouse-modes button {
+  height: 30px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.74);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.viewer-3d-mouse-modes button:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.viewer-3d-mouse-modes button.active {
+  border-color: var(--accent);
+  background: rgba(38, 132, 255, 0.24);
+  color: #fff;
+}
+
+.viewer-3d-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.viewer-3d-toggle input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--accent);
+}
+
+.viewer-3d-tissue-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.viewer-3d-tissue-list button {
+  height: 28px;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 7px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.viewer-3d-tissue-list button.active {
+  border-color: var(--accent);
+  background: rgba(38, 132, 255, 0.22);
+  color: #fff;
+}
+
+.viewer-3d-tissue-list button:disabled,
+.viewer-3d-slider input:disabled,
+.viewer-3d-toggle input:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.viewer-3d-swatch {
+  width: 10px;
+  height: 10px;
+  flex: 0 0 10px;
+  border-radius: 2px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.viewer-3d-slider {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 5px 8px;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.viewer-3d-slider input {
+  grid-column: 1 / -1;
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+.viewer-3d-slider output {
+  color: rgba(255, 255, 255, 0.6);
+}
+
 .viewer-3d-info span {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -163,5 +356,12 @@
   .viewer-3d-info {
     right: 12px;
     flex-wrap: wrap;
+  }
+
+  .viewer-3d-sidepanel {
+    top: auto;
+    right: 12px;
+    bottom: 52px;
+    width: min(226px, calc(100% - 24px));
   }
 }
