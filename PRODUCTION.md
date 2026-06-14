@@ -9,10 +9,12 @@
 ## Cloudflare Pages
 
 - Build command: `npm run build`
-- Build output directory: `dist`
+- Deploy command: `npx wrangler deploy`
+- Static assets directory: `dist`
 - Production branch: `main`
 - The project includes `public/_redirects` for SPA fallback.
 - The project includes `public/_headers` for the COOP/COEP headers required by Cornerstone.
+- The project includes `wrangler.toml` so Cloudflare Workers Static Assets deploys `dist` as the production site.
 
 ## Cloudflare DNS
 
