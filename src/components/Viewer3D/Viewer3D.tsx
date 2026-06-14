@@ -56,6 +56,8 @@ const Viewer3D: React.FC = () => {
   const studies = useViewerStore((state) => state.studies)
   const windowWidth = useViewerStore((state) => state.windowWidth)
   const windowCenter = useViewerStore((state) => state.windowCenter)
+  const setWindowWidth = useViewerStore((state) => state.setWindowWidth)
+  const setWindowCenter = useViewerStore((state) => state.setWindowCenter)
 
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -75,11 +77,15 @@ const Viewer3D: React.FC = () => {
   const opacityScaleRef = useRef(opacityScale)
   const useTissueControlsRef = useRef(useTissueControls)
   const blendModeRef = useRef(blendMode)
+  const windowWidthRef = useRef(windowWidth)
+  const windowCenterRef = useRef(windowCenter)
 
   tissueThicknessRef.current = tissueThickness
   opacityScaleRef.current = opacityScale
   useTissueControlsRef.current = useTissueControls
   blendModeRef.current = blendMode
+  windowWidthRef.current = windowWidth
+  windowCenterRef.current = windowCenter
 
   const study = useMemo(() => studies.find((s) => s.id === activeStudyId), [studies, activeStudyId])
   const series = useMemo(() => study?.series.find((s) => s.id === activeSeriesId), [study, activeSeriesId])
@@ -336,13 +342,16 @@ const Viewer3D: React.FC = () => {
     const element = elementRef.current
     if (!element) return
 
-    let tissueDrag: 'thickness' | 'opacity' | null = null
+    let dragMode: 'rotate' | 'pan' | 'zoom' | 'windowLevel' | 'thickness' | 'opacity' | null = null
     let lastY = 0
+    let lastX = 0
     let rafId: number | null = null
     let pendingThickness: number | null = null
     let pendingOpacity: number | null = null
+    let pendingWindowWidth: number | null = null
+    let pendingWindowCenter: number | null = null
 
-    const scheduleTissueUpdate = () => {
+    const scheduleInteractionUpdate = () => {
       if (rafId != null) return
       rafId = requestAnimationFrame(() => {
         rafId = null
@@ -354,7 +363,23 @@ const Viewer3D: React.FC = () => {
           setOpacityScale(pendingOpacity)
           pendingOpacity = null
         }
+        if (pendingWindowWidth != null) {
+          setWindowWidth(pendingWindowWidth)
+          pendingWindowWidth = null
+        }
+        if (pendingWindowCenter != null) {
+          setWindowCenter(pendingWindowCenter)
+          pendingWindowCenter = null
+        }
       })
+    }
+
+    const renderViewport = () => {
+      const viewport = viewportRef.current
+      if (!viewport) return
+
+      viewport.resetVolumeViewportClippingRange?.()
+      viewport.render()
     }
 
     const handleWheel = (event: WheelEvent) => {
@@ -366,23 +391,29 @@ const Viewer3D: React.FC = () => {
       if (!camera) return
 
       camera.zoom?.(event.deltaY > 0 ? 0.9 : 1.1)
-      viewport.resetVolumeViewportClippingRange?.()
-      viewport.render()
+      renderViewport()
     }
 
     const onPointerDown = (event: PointerEvent) => {
-      if (event.button !== 2) return
-      if (blendModeRef.current === 'mip' || !useTissueControlsRef.current) return
-
-      if (event.shiftKey) {
-        tissueDrag = 'thickness'
-      } else if (event.ctrlKey) {
-        tissueDrag = 'opacity'
+      if (event.button === 0 && event.shiftKey) {
+        dragMode = 'windowLevel'
+      } else if (event.button === 0) {
+        dragMode = 'rotate'
+      } else if (event.button === 1) {
+        dragMode = 'pan'
+      } else if (event.button === 2 && event.shiftKey && blendModeRef.current !== 'mip' && useTissueControlsRef.current) {
+        dragMode = 'thickness'
+        setUseTissueControls(true)
+      } else if (event.button === 2 && event.ctrlKey && blendModeRef.current !== 'mip' && useTissueControlsRef.current) {
+        dragMode = 'opacity'
+        setUseTissueControls(true)
+      } else if (event.button === 2) {
+        dragMode = 'zoom'
       } else {
         return
       }
 
-      setUseTissueControls(true)
+      lastX = event.clientX
       lastY = event.clientY
       event.preventDefault()
       event.stopPropagation()
@@ -390,15 +421,78 @@ const Viewer3D: React.FC = () => {
     }
 
     const onPointerMove = (event: PointerEvent) => {
-      if (!tissueDrag) return
+      if (!dragMode) return
 
       event.preventDefault()
       event.stopPropagation()
 
+      const dx = event.clientX - lastX
       const dy = lastY - event.clientY
+      lastX = event.clientX
       lastY = event.clientY
 
-      if (tissueDrag === 'thickness') {
+      const viewport = viewportRef.current
+      const camera = viewport?.getVtkActiveCamera?.()
+
+      if (dragMode === 'rotate' && camera) {
+        camera.azimuth?.(-dx * 0.45)
+        camera.elevation?.(dy * 0.45)
+        camera.orthogonalizeViewUp?.()
+        renderViewport()
+        return
+      }
+
+      if (dragMode === 'pan' && camera) {
+        const position = camera.getPosition?.()
+        const focalPoint = camera.getFocalPoint?.()
+        const viewUp = camera.getViewUp?.()
+
+        if (position && focalPoint && viewUp) {
+          const viewDir = [
+            focalPoint[0] - position[0],
+            focalPoint[1] - position[1],
+            focalPoint[2] - position[2],
+          ]
+          const right = [
+            viewDir[1] * viewUp[2] - viewDir[2] * viewUp[1],
+            viewDir[2] * viewUp[0] - viewDir[0] * viewUp[2],
+            viewDir[0] * viewUp[1] - viewDir[1] * viewUp[0],
+          ]
+          const normalize = (vector: number[]) => {
+            const length = Math.hypot(vector[0], vector[1], vector[2]) || 1
+            return vector.map((value) => value / length)
+          }
+          const normalizedRight = normalize(right)
+          const normalizedUp = normalize(viewUp)
+          const distance = Math.hypot(viewDir[0], viewDir[1], viewDir[2]) || 1
+          const scale = distance * 0.0018
+          const shift = [
+            (-dx * normalizedRight[0] - dy * normalizedUp[0]) * scale,
+            (-dx * normalizedRight[1] - dy * normalizedUp[1]) * scale,
+            (-dx * normalizedRight[2] - dy * normalizedUp[2]) * scale,
+          ]
+
+          camera.setPosition?.(position[0] + shift[0], position[1] + shift[1], position[2] + shift[2])
+          camera.setFocalPoint?.(focalPoint[0] + shift[0], focalPoint[1] + shift[1], focalPoint[2] + shift[2])
+          renderViewport()
+        }
+        return
+      }
+
+      if (dragMode === 'zoom' && camera) {
+        camera.zoom?.(Math.max(0.1, 1 + dy * 0.012))
+        renderViewport()
+        return
+      }
+
+      if (dragMode === 'windowLevel') {
+        pendingWindowWidth = Math.max(1, Math.round(windowWidthRef.current + dx * 2))
+        pendingWindowCenter = Math.round(windowCenterRef.current + dy * 2)
+        scheduleInteractionUpdate()
+        return
+      }
+
+      if (dragMode === 'thickness') {
         const next = Math.round(
           Math.max(
             THICKNESS_MIN,
@@ -416,13 +510,13 @@ const Viewer3D: React.FC = () => {
         pendingOpacity = next
       }
 
-      scheduleTissueUpdate()
+      scheduleInteractionUpdate()
     }
 
     const onPointerUp = (event: PointerEvent) => {
-      if (!tissueDrag) return
+      if (!dragMode) return
 
-      tissueDrag = null
+      dragMode = null
       try {
         element.releasePointerCapture?.(event.pointerId)
       } catch {
@@ -444,7 +538,7 @@ const Viewer3D: React.FC = () => {
       element.removeEventListener('pointercancel', onPointerUp, { capture: true })
       if (rafId != null) cancelAnimationFrame(rafId)
     }
-  }, [])
+  }, [setWindowCenter, setWindowWidth])
 
   const handleResetCamera = () => {
     const viewport = viewportRef.current

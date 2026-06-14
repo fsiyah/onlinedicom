@@ -36,6 +36,10 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
   seriesId,
   plane,
   volume,
+  crossReferencePoint,
+  onCrossReferenceChange,
+  onImageIndexChange,
+  syncImageIndex,
   onViewportReady,
   onDoubleClick,
 }) => {
@@ -44,6 +48,8 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
   const volumeRef = useRef<any>(null)
   const renderingEngineRef = useRef<any>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const currentImageIndexRef = useRef(0)
+  const isDraggingCrosshairRef = useRef(false)
 
   const windowWidth = useViewerStore((s) => s.windowWidth)
   const windowCenter = useViewerStore((s) => s.windowCenter)
@@ -419,6 +425,53 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
     }
   }
 
+  const updateCrosshairFromPointer = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const element = elementRef.current
+    if (!element || !onCrossReferenceChange) return
+
+    const rect = element.getBoundingClientRect()
+    const x = Math.max(0, Math.min(rect.width, event.clientX - rect.left))
+    const y = Math.max(0, Math.min(rect.height, event.clientY - rect.top))
+    onCrossReferenceChange([x, y])
+  }, [onCrossReferenceChange])
+
+  const handleCrosshairPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !onCrossReferenceChange) return
+
+    isDraggingCrosshairRef.current = true
+    event.currentTarget.setPointerCapture?.(event.pointerId)
+    updateCrosshairFromPointer(event)
+  }, [onCrossReferenceChange, updateCrosshairFromPointer])
+
+  const handleCrosshairPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingCrosshairRef.current) return
+    updateCrosshairFromPointer(event)
+  }, [updateCrosshairFromPointer])
+
+  const handleCrosshairPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    isDraggingCrosshairRef.current = false
+    try {
+      event.currentTarget.releasePointerCapture?.(event.pointerId)
+    } catch {
+      // Ignore pointer capture release errors.
+    }
+  }, [])
+
+  useEffect(() => {
+    if (syncImageIndex == null || !viewportRef.current) return
+
+    const delta = syncImageIndex - currentImageIndexRef.current
+    if (!delta) return
+
+    try {
+      viewportRef.current.scroll(delta, true)
+      viewportRef.current.render()
+      currentImageIndexRef.current = syncImageIndex
+    } catch (error) {
+      console.warn('MPR sync scroll error:', error)
+    }
+  }, [syncImageIndex])
+
   // Volume viewport scroll handler
   // StackScrollTool only works with stack viewports, NOT with orthographic/volume viewports
   // For volume viewports in MPR, we need to use viewport.scroll() API directly
@@ -440,6 +493,8 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
         // Use the volume viewport scroll API
         viewport.scroll(delta, true) // true = scroll through slices
         viewport.render()
+        currentImageIndexRef.current = Math.max(0, currentImageIndexRef.current + delta)
+        onImageIndexChange?.(plane, currentImageIndexRef.current)
       } catch (err) {
         console.error('MPR scroll error:', err)
       }
@@ -447,7 +502,7 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
 
     element.addEventListener('wheel', handleWheel, { passive: false })
     return () => element.removeEventListener('wheel', handleWheel)
-  }, [plane, viewportId])
+  }, [onImageIndexChange, plane, viewportId])
 
   // Handle double-click to switch to single view
   const handleDoubleClick = useCallback(() => {
@@ -490,7 +545,30 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
           position: 'relative',
         }}
         onContextMenu={(e) => e.preventDefault()}
+        onPointerDown={handleCrosshairPointerDown}
+        onPointerMove={handleCrosshairPointerMove}
+        onPointerUp={handleCrosshairPointerUp}
+        onPointerCancel={handleCrosshairPointerUp}
       />
+      {crossReferencePoint && (
+        <div className="mpr-crosshair-overlay" aria-hidden="true">
+          <div
+            className="mpr-crosshair-line horizontal"
+            style={{ top: `${crossReferencePoint[1]}px` }}
+          />
+          <div
+            className="mpr-crosshair-line vertical"
+            style={{ left: `${crossReferencePoint[0]}px` }}
+          />
+          <div
+            className="mpr-crosshair-handle"
+            style={{
+              left: `${crossReferencePoint[0]}px`,
+              top: `${crossReferencePoint[1]}px`,
+            }}
+          />
+        </div>
+      )}
       {images.length > 0 && (
         <div className="slice-info">{plane.charAt(0).toUpperCase() + plane.slice(1)}</div>
       )}
