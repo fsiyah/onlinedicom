@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import './LandingPage.css'
 
-const SPOTLIGHT_RADIUS = 185
+const MAX_SPOTLIGHT_RADIUS = 185
+const MIN_SPOTLIGHT_RADIUS = 92
 const XRAY_IMAGE = '/xray-renaissance-hands.png'
 const SKIN_IMAGE = '/skin-renaissance-hands.png'
 
@@ -9,6 +10,18 @@ interface RevealLayerProps {
   image: string
   cursorX: number
   cursorY: number
+  radius: number
+}
+
+const getResponsiveSpotlightRadius = () => {
+  if (typeof window === 'undefined') {
+    return MAX_SPOTLIGHT_RADIUS
+  }
+
+  const viewportBase = Math.min(window.innerWidth, window.innerHeight)
+  return Math.round(
+    Math.min(MAX_SPOTLIGHT_RADIUS, Math.max(MIN_SPOTLIGHT_RADIUS, viewportBase * 0.24)),
+  )
 }
 
 const featureCards = [
@@ -54,7 +67,7 @@ const faqs = [
   },
 ]
 
-function RevealLayer({ image, cursorX, cursorY }: RevealLayerProps) {
+function RevealLayer({ image, cursorX, cursorY, radius }: RevealLayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [maskUrl, setMaskUrl] = useState('')
 
@@ -77,7 +90,7 @@ function RevealLayer({ image, cursorX, cursorY }: RevealLayerProps) {
         0,
         cursorX,
         cursorY,
-        SPOTLIGHT_RADIUS,
+        radius,
       )
 
       gradient.addColorStop(0, 'rgba(255,255,255,1)')
@@ -89,12 +102,12 @@ function RevealLayer({ image, cursorX, cursorY }: RevealLayerProps) {
 
       ctx.fillStyle = gradient
       ctx.beginPath()
-      ctx.arc(cursorX, cursorY, SPOTLIGHT_RADIUS, 0, Math.PI * 2)
+      ctx.arc(cursorX, cursorY, radius, 0, Math.PI * 2)
       ctx.fill()
     }
 
     setMaskUrl(canvas.toDataURL())
-  }, [cursorX, cursorY])
+  }, [cursorX, cursorY, radius])
 
   return (
     <>
@@ -115,6 +128,7 @@ function RevealLayer({ image, cursorX, cursorY }: RevealLayerProps) {
 function LandingPage() {
   const [cursorPos, setCursorPos] = useState({ x: -999, y: -999 })
   const [skinProgress, setSkinProgress] = useState(0)
+  const [spotlightRadius, setSpotlightRadius] = useState(getResponsiveSpotlightRadius)
   const mouse = useRef({ x: -999, y: -999 })
   const smooth = useRef({ x: -999, y: -999 })
   const rafRef = useRef<number>()
@@ -165,13 +179,20 @@ function LandingPage() {
       setSkinProgress(nextProgress)
     }
 
+    const updateSpotlightRadius = () => {
+      setSpotlightRadius(getResponsiveSpotlightRadius())
+    }
+
     updateSkinProgress()
+    updateSpotlightRadius()
     window.addEventListener('scroll', updateSkinProgress, { passive: true })
     window.addEventListener('resize', updateSkinProgress)
+    window.addEventListener('resize', updateSpotlightRadius)
 
     return () => {
       window.removeEventListener('scroll', updateSkinProgress)
       window.removeEventListener('resize', updateSkinProgress)
+      window.removeEventListener('resize', updateSpotlightRadius)
     }
   }, [])
 
@@ -207,7 +228,12 @@ function LandingPage() {
             }) saturate(${0.74 + skinProgress * 0.42})`,
           }}
         />
-        <RevealLayer image={SKIN_IMAGE} cursorX={cursorPos.x} cursorY={cursorPos.y} />
+        <RevealLayer
+          image={SKIN_IMAGE}
+          cursorX={cursorPos.x}
+          cursorY={cursorPos.y}
+          radius={spotlightRadius}
+        />
 
         {hasCursor && (
           <div
@@ -215,8 +241,8 @@ function LandingPage() {
             style={{
               left: cursorPos.x,
               top: cursorPos.y,
-              width: SPOTLIGHT_RADIUS * 2,
-              height: SPOTLIGHT_RADIUS * 2,
+              width: spotlightRadius * 2,
+              height: spotlightRadius * 2,
             }}
           />
         )}
