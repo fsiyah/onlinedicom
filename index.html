@@ -2,12 +2,57 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RadiAnt DICOM Viewer Clone</title>
+    <title>Online DICOM Viewer | Browser-Based Medical Image Viewer</title>
+    <meta
+      name="description"
+      content="Online DICOM is a browser-based DICOM viewer for opening and reviewing medical imaging files locally."
+    />
+    <meta name="robots" content="index, follow" />
+    <link rel="canonical" href="https://onlinedicom.com/" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://onlinedicom.com/" />
+    <meta property="og:title" content="Online DICOM Viewer" />
+    <meta
+      property="og:description"
+      content="Open and review DICOM medical imaging files directly in your browser."
+    />
+    <meta property="og:site_name" content="Online DICOM" />
+    <meta property="og:image" content="https://onlinedicom.com/og-image.svg" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Online DICOM Viewer" />
+    <meta
+      name="twitter:description"
+      content="Open and review DICOM medical imaging files directly in your browser."
+    />
+    <meta name="twitter:image" content="https://onlinedicom.com/og-image.svg" />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Online DICOM",
+        "applicationCategory": "MedicalApplication",
+        "operatingSystem": "Web",
+        "url": "https://onlinedicom.com/",
+        "description": "A browser-based DICOM viewer for opening and reviewing medical imaging files locally.",
+        "offers": {
+          "@type": "Offer",
+          "price": "0",
+          "priceCurrency": "USD"
+        }
+      }
+    </script>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <main>
+        <h1>Online DICOM Viewer</h1>
+        <p>
+          Open and review DICOM medical imaging files locally in your browser.
+        </p>
+      </main>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

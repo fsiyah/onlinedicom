@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">Online DICOM Viewer</title>
+  <desc id="desc">Browser-based DICOM viewer for local medical image review.</desc>
+  <rect width="1200" height="630" fill="#101820"/>
+  <rect x="72" y="72" width="1056" height="486" rx="32" fill="#17242d" stroke="#2b3f4a" stroke-width="2"/>
+  <circle cx="252" cy="315" r="118" fill="none" stroke="#23d18b" stroke-width="18"/>
+  <path d="M186 315h132M252 249v132" stroke="#f7f9fb" stroke-width="18" stroke-linecap="round"/>
+  <text x="430" y="284" fill="#f7f9fb" font-family="Arial, Helvetica, sans-serif" font-size="72" font-weight="700">Online DICOM</text>
+  <text x="434" y="360" fill="#b8c7d0" font-family="Arial, Helvetica, sans-serif" font-size="34">Browser-based medical image viewer</text>
+</svg>
