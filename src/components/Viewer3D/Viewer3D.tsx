@@ -6,12 +6,9 @@ import { createVolumeFromImages, getVolumeDataRange } from '../../utils/volumeUt
 import { isMPRCompatible } from '../../utils/mprUtils'
 import {
   VOLUME_3D_RENDERING_ENGINE_ID,
-  VOLUME_3D_TOOL_GROUP_ID,
   destroy3DRenderingSession,
-  get3DToolGroupInitPromise,
   getOrCreateRenderingEngine,
   prepareVolumeRenderingSession,
-  set3DToolGroupInitPromise,
 } from '../../utils/renderingEngineLifecycle'
 import './Viewer3D.css'
 
@@ -27,7 +24,6 @@ const THICKNESS_DRAG_SENS = 0.6
 const OPACITY_DRAG_SENS = 0.35
 
 const RENDERING_ENGINE_ID = VOLUME_3D_RENDERING_ENGINE_ID
-const TOOL_GROUP_ID = VOLUME_3D_TOOL_GROUP_ID
 
 const PRESETS: Array<{ label: string; value: RenderingPreset }> = [
   { label: 'Bone', value: 'CT-Bone' },
@@ -49,107 +45,6 @@ const TISSUES: Array<{
   { key: 'contrast', label: 'Contrast', range: [150, 520], color: [1, 0.22, 0.18], opacity: 0.5 },
   { key: 'bone', label: 'Bone', range: [260, 2200], color: [0.96, 0.9, 0.76], opacity: 0.78 },
 ]
-
-function configure3DMouseBindings(toolGroup: any, toolEnums: any): void {
-  toolGroup.setToolActive('TrackballRotate', {
-    bindings: [{ mouseButton: toolEnums.MouseBindings.Primary }],
-  })
-  toolGroup.setToolActive('Pan', {
-    bindings: [{ mouseButton: toolEnums.MouseBindings.Auxiliary }],
-  })
-  toolGroup.setToolActive('Zoom', {
-    bindings: [
-      { mouseButton: toolEnums.MouseBindings.Secondary },
-      {
-        mouseButton: toolEnums.MouseBindings.Primary,
-        modifierKey: toolEnums.KeyboardBindings.Ctrl,
-      },
-    ],
-  })
-  toolGroup.setToolActive('WindowLevel', {
-    bindings: [
-      {
-        mouseButton: toolEnums.MouseBindings.Primary,
-        modifierKey: toolEnums.KeyboardBindings.Shift,
-      },
-    ],
-  })
-}
-
-async function initialize3DToolGroup(viewportId: string): Promise<any> {
-  let toolsInitPromise = get3DToolGroupInitPromise()
-
-  if (!toolsInitPromise) {
-    toolsInitPromise = (async () => {
-      const csTools = await import('@cornerstonejs/tools')
-      const {
-        init,
-        addTool,
-        ToolGroupManager,
-        TrackballRotateTool,
-        PanTool,
-        ZoomTool,
-        WindowLevelTool,
-        Enums: ToolEnums,
-      } = csTools
-
-      await init()
-
-      ;[TrackballRotateTool, PanTool, ZoomTool, WindowLevelTool].forEach((tool) => {
-        try {
-          addTool(tool)
-        } catch (error: any) {
-          if (!error.message?.includes('already been added')) {
-            console.warn(`Failed to add 3D tool ${tool.toolName}:`, error)
-          }
-        }
-      })
-
-      let toolGroup = ToolGroupManager.getToolGroup(TOOL_GROUP_ID)
-      if (!toolGroup) {
-        toolGroup = ToolGroupManager.createToolGroup(TOOL_GROUP_ID)
-        if (!toolGroup) {
-          throw new Error('3D tool group could not be created.')
-        }
-
-        toolGroup.addTool(TrackballRotateTool.toolName)
-        toolGroup.addTool(PanTool.toolName)
-        toolGroup.addTool(ZoomTool.toolName)
-        toolGroup.addTool(WindowLevelTool.toolName)
-
-        configure3DMouseBindings(toolGroup, ToolEnums)
-      }
-
-      return { toolGroup, ToolGroupManager }
-    })()
-
-    set3DToolGroupInitPromise(toolsInitPromise)
-  }
-
-  const { toolGroup } = await toolsInitPromise
-  const viewportIds = toolGroup.getViewportIds?.() || []
-  if (!viewportIds.includes(viewportId)) {
-    toolGroup.addViewport(viewportId, RENDERING_ENGINE_ID)
-  }
-
-  return toolGroup
-}
-
-function remove3DViewportFromToolGroup(viewportId: string): void {
-  const toolsInitPromise = get3DToolGroupInitPromise()
-  if (!toolsInitPromise) return
-
-  toolsInitPromise
-    .then(({ toolGroup }) => {
-      const viewportIds = toolGroup.getViewportIds?.() || []
-      if (viewportIds.includes(viewportId)) {
-        toolGroup.removeViewports(RENDERING_ENGINE_ID, [viewportId])
-      }
-    })
-    .catch(() => {
-      // Ignore cleanup errors.
-    })
-}
 
 const Viewer3D: React.FC = () => {
   const elementRef = useRef<HTMLDivElement>(null)
@@ -305,8 +200,6 @@ const Viewer3D: React.FC = () => {
     if (!isCompatible || !elementRef.current || !activeSeriesId) return
 
     let cancelled = false
-    let setupViewportId: string | null = null
-
     const setupVolumeRendering = async () => {
       setIsLoading(true)
       setError(null)
@@ -351,7 +244,6 @@ const Viewer3D: React.FC = () => {
 
         const existingViewport = renderingEngine.getViewport(viewportId)
         if (existingViewport) {
-          remove3DViewportFromToolGroup(viewportId)
           renderingEngine.disableElement(viewportId)
         }
 
@@ -369,7 +261,6 @@ const Viewer3D: React.FC = () => {
         if (!viewport || cancelled) return
 
         viewportRef.current = viewport
-        setupViewportId = viewportId
 
         await viewport.setVolumes([
           {
@@ -377,8 +268,6 @@ const Viewer3D: React.FC = () => {
             blendMode: blendMode === 'mip' ? Enums.BlendModes.MAXIMUM_INTENSITY_BLEND : Enums.BlendModes.COMPOSITE,
           },
         ])
-
-        await initialize3DToolGroup(viewportId)
 
         if (cancelled) return
 
@@ -409,10 +298,6 @@ const Viewer3D: React.FC = () => {
       cancelled = true
       viewportRef.current = null
       renderingEngineRef.current = null
-
-      if (setupViewportId) {
-        remove3DViewportFromToolGroup(setupViewportId)
-      }
 
       void destroy3DRenderingSession(volumeId)
     }

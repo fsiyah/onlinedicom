@@ -32,13 +32,6 @@ export async function destroyRenderingEngineById(engineId: string): Promise<void
 
 export async function reset3DToolGroupState(): Promise<void> {
   tools3DInitPromise = null
-
-  try {
-    const { ToolGroupManager } = await import('@cornerstonejs/tools')
-    ToolGroupManager.destroyToolGroup(VOLUME_3D_TOOL_GROUP_ID)
-  } catch {
-    // Ignore cleanup errors when the tool group was never created.
-  }
 }
 
 export async function destroy3DRenderingSession(volumeId?: string): Promise<void> {
