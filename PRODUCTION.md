@@ -12,9 +12,8 @@
 - Deploy command: `npx wrangler deploy`
 - Static assets directory: `dist`
 - Production branch: `main`
-- The project includes `public/_redirects` for SPA fallback.
 - The project includes `public/_headers` for the COOP/COEP headers required by Cornerstone.
-- The project includes `wrangler.toml` so Cloudflare Workers Static Assets deploys `dist` as the production site.
+- The project includes `wrangler.toml` so Cloudflare Workers Static Assets deploys `dist` as the production site and serves `index.html` for SPA fallback.
 
 ## Cloudflare DNS
 
