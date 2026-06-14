@@ -75,7 +75,10 @@ async function doInitialization(): Promise<Cornerstone3DModules> {
       }
     }
   } catch (importError) {
-    console.warn('Cornerstone3D packages not installed. Install with: npm install @cornerstonejs/core @cornerstonejs/streaming-image-volume-loader')
+    console.warn(
+      'Cornerstone3D import failed. The packages are installed, but the production bundle may have failed during module initialization:',
+      importError,
+    )
     throw new Error('Cornerstone3D packages not available. Please install them first.')
   }
 

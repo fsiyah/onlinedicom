@@ -24,27 +24,7 @@ export default defineConfig({
     sourcemap: false,
     rollupOptions: {
       output: {
-        manualChunks(id) {
-          if (id.includes('node_modules/@cornerstonejs')) {
-            return 'cornerstone3d'
-          }
-          if (
-            id.includes('node_modules/cornerstone-core') ||
-            id.includes('node_modules/cornerstone-tools') ||
-            id.includes('node_modules/cornerstone-wado-image-loader') ||
-            id.includes('node_modules/cornerstone-math') ||
-            id.includes('node_modules/dicom-parser') ||
-            id.includes('node_modules/hammerjs')
-          ) {
-            return 'cornerstone-classic'
-          }
-          if (
-            id.includes('node_modules/three') ||
-            id.includes('node_modules/@react-three')
-          ) {
-            return 'three'
-          }
-        },
+        inlineDynamicImports: true,
       },
     },
   },
