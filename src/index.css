@@ -26,12 +26,27 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: var(--bg-primary);
   color: var(--text-primary);
-  overflow: hidden;
+  overflow-x: hidden;
 }
 
 #root {
+  min-width: 100vw;
+  min-height: 100vh;
+}
+
+body.viewer-page {
+  overflow: hidden;
+}
+
+body.viewer-page #root {
   width: 100vw;
   height: 100vh;
+}
+
+body.landing-page-body {
+  overflow-y: auto;
+  background: #ffffff;
+  color: #101828;
 }
 
 code {
