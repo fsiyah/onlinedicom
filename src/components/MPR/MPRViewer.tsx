@@ -12,6 +12,10 @@ import {
   calculateSliceIndexForPosition,
 } from '../../utils/mprUtils'
 import { activateCrosshairsTool } from '../../utils/cornerstoneToolsConfig'
+import {
+  destroyMprRenderingSession,
+  prepareVolumeRenderingSession,
+} from '../../utils/renderingEngineLifecycle'
 import './MPRViewer.css'
 
 const MPRViewer: React.FC = () => {
@@ -116,6 +120,17 @@ const MPRViewer: React.FC = () => {
   // Reset ready viewports when series changes
   useEffect(() => {
     setReadyViewports(new Set())
+  }, [activeSeriesId])
+
+  useEffect(() => {
+    if (!activeSeriesId) return
+
+    const volumeId = `volume-${activeSeriesId}`
+    void prepareVolumeRenderingSession({ mode: 'MPR', volumeId })
+
+    return () => {
+      void destroyMprRenderingSession(volumeId)
+    }
   }, [activeSeriesId])
 
   // Handle cross-reference point changes - synchronize slice indices across planes for spatial alignment

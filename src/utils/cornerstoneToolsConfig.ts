@@ -248,3 +248,22 @@ export function getRenderingEngineId(): string {
 export function getToolGroup(): any {
   return toolGroupInstance
 }
+
+/**
+ * Fully reset the MPR tool group so a fresh session can be created after
+ * switching away from MPR or destroying its rendering engine.
+ */
+export async function resetMprToolGroupState(): Promise<void> {
+  registeredViewports.clear()
+
+  try {
+    const csTools = await import('@cornerstonejs/tools')
+    csTools.ToolGroupManager.destroyToolGroup(TOOL_GROUP_ID)
+  } catch {
+    // Ignore cleanup errors when the tool group was never created.
+  }
+
+  toolGroupInstance = null
+  toolsInitialized = false
+  initPromise = null
+}

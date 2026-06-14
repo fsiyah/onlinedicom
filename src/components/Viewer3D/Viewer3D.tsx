@@ -4,6 +4,15 @@ import { useViewerStore } from '../../store/viewerStore'
 import { initCornerstone3D, getCornerstone3D } from '../../utils/cornerstone3DConfig'
 import { createVolumeFromImages, getVolumeDataRange } from '../../utils/volumeUtils'
 import { isMPRCompatible } from '../../utils/mprUtils'
+import {
+  VOLUME_3D_RENDERING_ENGINE_ID,
+  VOLUME_3D_TOOL_GROUP_ID,
+  destroy3DRenderingSession,
+  get3DToolGroupInitPromise,
+  getOrCreateRenderingEngine,
+  prepareVolumeRenderingSession,
+  set3DToolGroupInitPromise,
+} from '../../utils/renderingEngineLifecycle'
 import './Viewer3D.css'
 
 type RenderingPreset = 'CT-Bone' | 'CT-Soft-Tissue' | 'CT-Muscle' | 'CT-Lung' | 'MR-Default'
@@ -17,8 +26,8 @@ const OPACITY_MAX = 100
 const THICKNESS_DRAG_SENS = 0.6
 const OPACITY_DRAG_SENS = 0.35
 
-const RENDERING_ENGINE_ID = 'volume-3d-rendering-engine'
-const TOOL_GROUP_ID = 'volume-3d-tool-group'
+const RENDERING_ENGINE_ID = VOLUME_3D_RENDERING_ENGINE_ID
+const TOOL_GROUP_ID = VOLUME_3D_TOOL_GROUP_ID
 
 const PRESETS: Array<{ label: string; value: RenderingPreset }> = [
   { label: 'Bone', value: 'CT-Bone' },
@@ -40,8 +49,6 @@ const TISSUES: Array<{
   { key: 'contrast', label: 'Contrast', range: [150, 520], color: [1, 0.22, 0.18], opacity: 0.5 },
   { key: 'bone', label: 'Bone', range: [260, 2200], color: [0.96, 0.9, 0.76], opacity: 0.78 },
 ]
-
-let toolsInitPromise: Promise<any> | null = null
 
 function configure3DMouseBindings(toolGroup: any, toolEnums: any): void {
   toolGroup.setToolActive('TrackballRotate', {
@@ -70,6 +77,8 @@ function configure3DMouseBindings(toolGroup: any, toolEnums: any): void {
 }
 
 async function initialize3DToolGroup(viewportId: string): Promise<any> {
+  let toolsInitPromise = get3DToolGroupInitPromise()
+
   if (!toolsInitPromise) {
     toolsInitPromise = (async () => {
       const csTools = await import('@cornerstonejs/tools')
@@ -113,6 +122,8 @@ async function initialize3DToolGroup(viewportId: string): Promise<any> {
 
       return { toolGroup, ToolGroupManager }
     })()
+
+    set3DToolGroupInitPromise(toolsInitPromise)
   }
 
   const { toolGroup } = await toolsInitPromise
@@ -125,6 +136,7 @@ async function initialize3DToolGroup(viewportId: string): Promise<any> {
 }
 
 function remove3DViewportFromToolGroup(viewportId: string): void {
+  const toolsInitPromise = get3DToolGroupInitPromise()
   if (!toolsInitPromise) return
 
   toolsInitPromise
@@ -319,6 +331,7 @@ const Viewer3D: React.FC = () => {
         if (cancelled) return
 
         await initCornerstone3D()
+        await prepareVolumeRenderingSession({ mode: '3D', volumeId })
         const cs3D = getCornerstone3D()
         if (!cs3D) {
           throw new Error('Cornerstone3D could not be initialized.')
@@ -332,11 +345,7 @@ const Viewer3D: React.FC = () => {
         }
         if (cancelled) return
 
-        const { RenderingEngine, getRenderingEngine } = await import('@cornerstonejs/core')
-        let renderingEngine = getRenderingEngine(RENDERING_ENGINE_ID)
-        if (!renderingEngine) {
-          renderingEngine = new RenderingEngine(RENDERING_ENGINE_ID)
-        }
+        const renderingEngine = await getOrCreateRenderingEngine(RENDERING_ENGINE_ID)
 
         renderingEngineRef.current = renderingEngine
 
@@ -399,15 +408,13 @@ const Viewer3D: React.FC = () => {
     return () => {
       cancelled = true
       viewportRef.current = null
+      renderingEngineRef.current = null
 
-      if (setupViewportId && renderingEngineRef.current) {
-        try {
-          remove3DViewportFromToolGroup(setupViewportId)
-          renderingEngineRef.current.disableElement(setupViewportId)
-        } catch {
-          // Ignore cleanup errors.
-        }
+      if (setupViewportId) {
+        remove3DViewportFromToolGroup(setupViewportId)
       }
+
+      void destroy3DRenderingSession(volumeId)
     }
   // Recreate the viewport only when the active series changes. Presets, blend modes,
   // and window/level are applied to the existing volume actor in a separate effect.

@@ -19,6 +19,29 @@ export function getVolumeDataRange(): { min: number; max: number } | null {
   return lastVolumeDataRange
 }
 
+export function resetVolumeDataRange(): void {
+  lastVolumeDataRange = null
+}
+
+export async function releaseCachedVolume(volumeId: string): Promise<void> {
+  const streamingVolumeId = `cornerstoneStreamingImageVolume:${volumeId}`
+
+  volumeLoadingPromises.delete(streamingVolumeId)
+  resetVolumeDataRange()
+
+  try {
+    await initCornerstone3D()
+    const cs3D = getCornerstone3D()
+    if (!cs3D?.cache?.getVolume?.(streamingVolumeId)) {
+      return
+    }
+
+    cs3D.cache.removeVolumeLoadObject(streamingVolumeId)
+  } catch (error) {
+    console.warn(`Failed to release cached volume ${volumeId}:`, error)
+  }
+}
+
 /**
  * Create a Cornerstone3D volume from DICOM images
  * Uses manual pixel data copying to handle blob URLs correctly

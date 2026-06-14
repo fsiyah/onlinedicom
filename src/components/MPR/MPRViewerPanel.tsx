@@ -9,6 +9,7 @@ import {
   removeViewportFromToolGroup,
   getRenderingEngineId,
 } from '../../utils/cornerstoneToolsConfig'
+import { getOrCreateRenderingEngine } from '../../utils/renderingEngineLifecycle'
 import './MPRViewerPanel.css'
 
 interface MPRViewerPanelProps {
@@ -138,13 +139,7 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
         volumeRef.current = csVolume
 
         // Get or create rendering engine
-        const coreModule = await import('@cornerstonejs/core')
-        const { RenderingEngine, getRenderingEngine } = coreModule
-
-        let renderingEngine = getRenderingEngine(renderingEngineId)
-        if (!renderingEngine) {
-          renderingEngine = new RenderingEngine(renderingEngineId)
-        }
+        const renderingEngine = await getOrCreateRenderingEngine(renderingEngineId)
         renderingEngineRef.current = renderingEngine
 
         // Check if viewport exists, if so destroy it first
@@ -345,15 +340,17 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
 
     return () => {
       cancelled = true
-      // Cleanup on unmount - properly destroy viewport
+      viewportRef.current = null
+      volumeRef.current = null
+
       if (setupViewportId && renderingEngineRef.current) {
         try {
           removeViewportFromToolGroup(setupViewportId)
-          // Disable viewport from rendering engine to release canvas
-          renderingEngineRef.current.disableElement(setupViewportId)
-          console.log(`Viewport ${setupViewportId} disabled`)
-        } catch (e) {
-          // Ignore cleanup errors
+          if (!renderingEngineRef.current.hasBeenDestroyed) {
+            renderingEngineRef.current.disableElement(setupViewportId)
+          }
+        } catch {
+          // Ignore cleanup errors.
         }
       }
     }
