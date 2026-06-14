@@ -21,7 +21,7 @@ const ControlsHelp: React.FC = () => {
     <div className="controls-help-overlay" onClick={() => setIsOpen(false)}>
       <div className="controls-help-dialog" onClick={(e) => e.stopPropagation()}>
         <div className="controls-help-header">
-          <h2>RadiAnt-Style Controls</h2>
+          <h2>Online DICOM Controls</h2>
           <button className="close-button" onClick={() => setIsOpen(false)}>
             <X size={20} />
           </button>

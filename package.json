@@ -1,7 +1,7 @@
 {
-  "name": "radiant-clone",
+  "name": "onlinedicom",
   "version": "1.0.0",
-  "description": "RadiAnt DICOM Viewer Clone - A comprehensive medical imaging viewer",
+  "description": "Online DICOM Viewer",
   "type": "module",
   "scripts": {
     "dev": "vite",

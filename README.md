@@ -1,6 +1,6 @@
-# RadiAnt DICOM Viewer Clone
+# Online DICOM
 
-A comprehensive web-based DICOM viewer clone of RadiAnt DICOM Viewer with all major features.
+A web-based DICOM viewer for local medical image review.
 
 ## Features
 
