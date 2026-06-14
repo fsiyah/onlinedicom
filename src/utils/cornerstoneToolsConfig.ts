@@ -13,6 +13,37 @@ const registeredViewports = new Set<string>()
 const TOOL_GROUP_ID = 'mpr-tool-group'
 const RENDERING_ENGINE_ID = 'mpr-rendering-engine'
 
+async function loadCornerstoneTools() {
+  const [
+    initModule,
+    addToolModule,
+    toolGroupManager,
+    bindingsModule,
+    toolsModule,
+  ] = await Promise.all([
+    import('@cornerstonejs/tools/dist/esm/init.js'),
+    import('@cornerstonejs/tools/dist/esm/store/addTool.js'),
+    import('@cornerstonejs/tools/dist/esm/store/ToolGroupManager/index.js'),
+    import('@cornerstonejs/tools/dist/esm/enums/ToolBindings.js'),
+    import('@cornerstonejs/tools/dist/esm/tools/index.js'),
+  ])
+
+  return {
+    init: initModule.init,
+    addTool: addToolModule.addTool,
+    ToolGroupManager: toolGroupManager,
+    ToolEnums: {
+      MouseBindings: bindingsModule.MouseBindings,
+      KeyboardBindings: bindingsModule.KeyboardBindings,
+    },
+    CrosshairsTool: toolsModule.CrosshairsTool,
+    WindowLevelTool: toolsModule.WindowLevelTool,
+    PanTool: toolsModule.PanTool,
+    ZoomTool: toolsModule.ZoomTool,
+    StackScrollTool: toolsModule.StackScrollTool,
+  }
+}
+
 /**
  * Initialize Cornerstone3D tools (singleton pattern)
  * This should only be called once, subsequent calls return the same instance
@@ -29,7 +60,7 @@ export async function initializeCornerstoneTools(): Promise<any> {
   }
 
   initPromise = doToolsInitialization()
-  
+
   try {
     const result = await initPromise
     return result
@@ -44,31 +75,138 @@ export async function initializeCornerstoneTools(): Promise<any> {
  * Internal initialization function
  */
 async function doToolsInitialization(): Promise<any> {
-  toolsInitialized = true
-  toolGroupInstance = null
-  console.warn('Cornerstone3D tools are disabled in production to avoid module initialization errors.')
-  return null
+  try {
+    const {
+      init: initCsTools,
+      addTool,
+      CrosshairsTool,
+      WindowLevelTool,
+      PanTool,
+      ZoomTool,
+      StackScrollTool,
+      ToolGroupManager,
+      ToolEnums,
+    } = await loadCornerstoneTools()
+
+    // Initialize cornerstone tools (only once)
+    if (!toolsInitialized) {
+      await initCsTools()
+
+      // Add tools globally (only once, wrapped in try-catch)
+      const toolsToAdd = [
+        CrosshairsTool,
+        WindowLevelTool,
+        PanTool,
+        ZoomTool,
+        StackScrollTool,
+      ]
+
+      for (const tool of toolsToAdd) {
+        try {
+          addTool(tool)
+        } catch (e: any) {
+          // Tool already added - this is fine
+          if (!e.message?.includes('already been added')) {
+            console.warn(`Failed to add tool ${tool.toolName}:`, e)
+          }
+        }
+      }
+    }
+
+    // Create or get tool group
+    let toolGroup = ToolGroupManager.getToolGroup(TOOL_GROUP_ID)
+    if (!toolGroup) {
+      toolGroup = ToolGroupManager.createToolGroup(TOOL_GROUP_ID)
+
+      if (toolGroup) {
+        // Add tools to group with CrosshairsTool configuration
+        toolGroup.addTool(CrosshairsTool.toolName, {
+          getReferenceLineColor: (viewportId: string) => {
+            if (viewportId.includes('axial')) return 'rgb(200, 0, 0)'
+            if (viewportId.includes('coronal')) return 'rgb(0, 200, 0)'
+            if (viewportId.includes('sagittal')) return 'rgb(0, 0, 200)'
+            return 'rgb(200, 200, 0)'
+          },
+          getReferenceLineControllable: () => true,
+          getReferenceLineDraggableRotatable: () => true,
+          getReferenceLineSlabThicknessControlsOn: () => true,
+        })
+
+        toolGroup.addTool(WindowLevelTool.toolName)
+        toolGroup.addTool(PanTool.toolName)
+        toolGroup.addTool(ZoomTool.toolName)
+        toolGroup.addTool(StackScrollTool.toolName)
+
+        // Set tool bindings - but DON'T activate crosshairs yet
+        // Window/Level on right mouse button
+        toolGroup.setToolActive(WindowLevelTool.toolName, {
+          bindings: [{ mouseButton: ToolEnums.MouseBindings.Secondary }],
+        })
+
+        // Pan on middle mouse button
+        toolGroup.setToolActive(PanTool.toolName, {
+          bindings: [{ mouseButton: ToolEnums.MouseBindings.Auxiliary }],
+        })
+
+        // Zoom with Ctrl+left click
+        toolGroup.setToolActive(ZoomTool.toolName, {
+          bindings: [
+            {
+              mouseButton: ToolEnums.MouseBindings.Primary,
+              modifierKey: ToolEnums.KeyboardBindings.Ctrl,
+            },
+          ],
+        })
+
+        // Stack scroll on mouse wheel - MUST include Wheel binding in Cornerstone3D v2+
+        // Note: This works for stack viewports. For volume/orthographic viewports (MPR),
+        // we use a custom wheel handler with viewport.scroll() in MPRViewerPanel
+        toolGroup.setToolActive(StackScrollTool.toolName, {
+          bindings: [{ mouseButton: (ToolEnums.MouseBindings as any).Wheel }],
+        })
+      }
+    }
+
+    toolGroupInstance = toolGroup
+    toolsInitialized = true
+    console.log('Cornerstone3D tools initialized successfully')
+    return toolGroup
+  } catch (error) {
+    console.error('Failed to initialize Cornerstone3D tools:', error)
+    throw error
+  }
 }
 
 /**
  * Add a viewport to the tool group
  */
-export function addViewportToToolGroup(viewportId: string): void {
+export async function addViewportToToolGroup(viewportId: string): Promise<void> {
   if (!toolGroupInstance) {
-    console.warn('Tool group not initialized yet')
+    console.warn('Tool group not initialized yet, initializing before adding viewport')
+    await initializeCornerstoneTools()
+  }
+
+  if (!toolGroupInstance) {
+    console.warn('Tool group could not be initialized before adding viewport')
     return
   }
 
   try {
     // Track viewport in our own set
     registeredViewports.add(viewportId)
-    
-    // Also add to tool group if not already there
+
+    // Rebind by ID on every mount. ToolGroup keeps viewport IDs, not DOM elements,
+    // so a remounted viewport can otherwise look "already added" while pointing at
+    // a disabled element from the previous MPR session.
     const viewportIds = toolGroupInstance.getViewportIds?.() || []
     if (!viewportIds.includes(viewportId)) {
       toolGroupInstance.addViewport(viewportId, RENDERING_ENGINE_ID)
-      console.log(`Added viewport ${viewportId} to tool group (total: ${registeredViewports.size})`)
+    } else {
+      toolGroupInstance.removeViewports(RENDERING_ENGINE_ID, viewportId)
+      toolGroupInstance.addViewport(viewportId, RENDERING_ENGINE_ID)
     }
+
+    console.log(`Added viewport ${viewportId} to tool group (total: ${registeredViewports.size})`)
   } catch (error) {
     console.error(`Failed to add viewport ${viewportId} to tool group:`, error)
   }
@@ -79,16 +217,16 @@ export function addViewportToToolGroup(viewportId: string): void {
  */
 export function removeViewportFromToolGroup(viewportId: string): void {
   registeredViewports.delete(viewportId)
-  
+
   if (!toolGroupInstance) return
 
   try {
     const viewportIds = toolGroupInstance.getViewportIds?.() || []
     if (viewportIds.includes(viewportId)) {
-      toolGroupInstance.removeViewports(RENDERING_ENGINE_ID, [viewportId])
+      toolGroupInstance.removeViewports(RENDERING_ENGINE_ID, viewportId)
       console.log(`Removed viewport ${viewportId} from tool group`)
     }
-  } catch (error) {
+  } catch {
     // Ignore errors during cleanup
   }
 }
@@ -105,7 +243,34 @@ export function getRegisteredViewportCount(): number {
  * This should only be called once all viewports are registered
  */
 export async function activateCrosshairsTool(): Promise<void> {
-  console.warn('CrosshairsTool is disabled in production.')
+  if (!toolGroupInstance) {
+    console.warn('Tool group not initialized before crosshair activation, initializing now')
+    await initializeCornerstoneTools()
+  }
+
+  if (!toolGroupInstance) {
+    console.warn('Tool group could not be initialized before crosshair activation')
+    return
+  }
+
+  try {
+    const { CrosshairsTool, ToolEnums } = await loadCornerstoneTools()
+
+    // Use our manual tracking for viewport count
+    const viewportCount = registeredViewports.size
+    console.log(`Activating CrosshairsTool with ${viewportCount} viewports (tracked)`)
+
+    if (viewportCount >= 2) {
+      toolGroupInstance.setToolActive(CrosshairsTool.toolName, {
+        bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
+      })
+      console.log('CrosshairsTool activated successfully')
+    } else {
+      console.warn('CrosshairsTool requires at least 2 viewports, currently have:', viewportCount)
+    }
+  } catch (error) {
+    console.error('Failed to activate CrosshairsTool:', error)
+  }
 }
 
 /**
@@ -135,6 +300,14 @@ export function getToolGroup(): any {
  */
 export async function resetMprToolGroupState(): Promise<void> {
   registeredViewports.clear()
+
+  try {
+    const { ToolGroupManager } = await loadCornerstoneTools()
+    ToolGroupManager.destroyToolGroup(TOOL_GROUP_ID)
+  } catch {
+    // Ignore cleanup errors when the tool group was never created.
+  }
+
   toolGroupInstance = null
   toolsInitialized = false
   initPromise = null

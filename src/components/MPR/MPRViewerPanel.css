@@ -74,64 +74,6 @@
   pointer-events: none;
 }
 
-.mpr-crosshair-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 8;
-  width: 100%;
-  height: 100%;
-  pointer-events: all;
-  touch-action: none;
-}
-
-.mpr-crosshair-hit-area {
-  fill: transparent;
-  cursor: crosshair;
-}
-
-.mpr-crosshair-line {
-  stroke-width: 2;
-  vector-effect: non-scaling-stroke;
-  box-shadow: 0 0 4px rgba(0, 0, 0, 0.85);
-  cursor: move;
-}
-
-.mpr-crosshair-thickness-band {
-  opacity: 0.16;
-  pointer-events: none;
-}
-
-.mpr-crosshair-thickness-handle {
-  stroke: rgba(0, 0, 0, 0.85);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-  opacity: 0.92;
-  cursor: ns-resize;
-}
-
-.mpr-crosshair-thickness-handle.vertical {
-  cursor: ew-resize;
-}
-
-.mpr-crosshair-rotation-handle {
-  stroke: rgba(0, 0, 0, 0.85);
-  stroke-width: 1.5;
-  vector-effect: non-scaling-stroke;
-  cursor: grab;
-}
-
-.mpr-crosshair-rotation-handle:hover {
-  cursor: grabbing;
-}
-
-.mpr-crosshair-center {
-  fill: #ffeb5a;
-  stroke: rgba(0, 0, 0, 0.9);
-  stroke-width: 1.5;
-  vector-effect: non-scaling-stroke;
-  cursor: move;
-}
-
 .error-message {
   width: 100%;
   height: 100%;
