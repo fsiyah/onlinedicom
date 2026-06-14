@@ -36,10 +36,19 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
   seriesId,
   plane,
   volume,
+  rotation = { pitch: 0, yaw: 0, roll: 0 },
   crossReferencePoint,
   onCrossReferenceChange,
   onImageIndexChange,
+  onRotationChange,
+  onSlabThicknessChange,
   syncImageIndex,
+  slabThickness: slabThicknessMap = { axial: 10, coronal: 10, sagittal: 10 },
+  allRotations = {
+    axial: { pitch: 0, yaw: 0, roll: 0 },
+    coronal: { pitch: 0, yaw: 0, roll: 0 },
+    sagittal: { pitch: 0, yaw: 0, roll: 0 },
+  },
   onViewportReady,
   onDoubleClick,
 }) => {
@@ -49,7 +58,12 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
   const renderingEngineRef = useRef<any>(null)
   const [isLoading, setIsLoading] = useState(false)
   const currentImageIndexRef = useRef(0)
-  const isDraggingCrosshairRef = useRef(false)
+  const overlayDragRef = useRef<{
+    action: 'move' | 'horizontal-thickness' | 'vertical-thickness' | 'horizontal-rotate' | 'vertical-rotate'
+    startX: number
+    startY: number
+    targetPlane?: Plane
+  } | null>(null)
 
   const windowWidth = useViewerStore((s) => s.windowWidth)
   const windowCenter = useViewerStore((s) => s.windowCenter)
@@ -64,6 +78,27 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
   // Stable callback ref for onViewportReady
   const onViewportReadyRef = useRef(onViewportReady)
   onViewportReadyRef.current = onViewportReady
+
+  const overlayAxes = (() => {
+    if (plane === 'axial') {
+      return {
+        horizontal: { plane: 'coronal' as Plane, color: '#00cc00' },
+        vertical: { plane: 'sagittal' as Plane, color: '#3b82f6' },
+      }
+    }
+
+    if (plane === 'coronal') {
+      return {
+        horizontal: { plane: 'axial' as Plane, color: '#e63939' },
+        vertical: { plane: 'sagittal' as Plane, color: '#3b82f6' },
+      }
+    }
+
+    return {
+      horizontal: { plane: 'axial' as Plane, color: '#e63939' },
+      vertical: { plane: 'coronal' as Plane, color: '#00cc00' },
+    }
+  })()
 
   // Setup volume viewport
   useEffect(() => {
@@ -425,7 +460,7 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
     }
   }
 
-  const updateCrosshairFromPointer = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+  const updateCrosshairFromPointer = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
     const element = elementRef.current
     if (!element || !onCrossReferenceChange) return
 
@@ -435,21 +470,73 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
     onCrossReferenceChange([x, y])
   }, [onCrossReferenceChange])
 
-  const handleCrosshairPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (event.button !== 0 || !onCrossReferenceChange) return
+  const handleOverlayPointerDown = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+    if (event.button !== 0) return
 
-    isDraggingCrosshairRef.current = true
+    const target = event.target as SVGElement
+    const action = target.dataset.action as NonNullable<typeof overlayDragRef.current>['action'] | undefined
+    const targetPlane = target.dataset.plane as Plane | undefined
+    const resolvedAction =
+      action ||
+      (target.dataset.axis === 'horizontal' || target.dataset.axis === 'vertical' ? 'move' : 'move')
+
+    overlayDragRef.current = {
+      action: resolvedAction as NonNullable<typeof overlayDragRef.current>['action'],
+      startX: event.clientX,
+      startY: event.clientY,
+      targetPlane,
+    }
+
     event.currentTarget.setPointerCapture?.(event.pointerId)
-    updateCrosshairFromPointer(event)
-  }, [onCrossReferenceChange, updateCrosshairFromPointer])
-
-  const handleCrosshairPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    if (!isDraggingCrosshairRef.current) return
-    updateCrosshairFromPointer(event)
+    if (resolvedAction === 'move') {
+      updateCrosshairFromPointer(event)
+    }
   }, [updateCrosshairFromPointer])
 
-  const handleCrosshairPointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
-    isDraggingCrosshairRef.current = false
+  const handleOverlayPointerMove = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+    const drag = overlayDragRef.current
+    if (!drag) return
+
+    if (drag.action === 'move') {
+      updateCrosshairFromPointer(event)
+      return
+    }
+
+    const dx = event.clientX - drag.startX
+    const dy = event.clientY - drag.startY
+
+    if ((drag.action === 'horizontal-thickness' || drag.action === 'vertical-thickness') && drag.targetPlane) {
+      const deltaMm = drag.action === 'horizontal-thickness' ? -dy * 0.08 : dx * 0.08
+      if (Math.abs(deltaMm) >= 0.25) {
+        onSlabThicknessChange?.(drag.targetPlane, deltaMm)
+        drag.startX = event.clientX
+        drag.startY = event.clientY
+      }
+      return
+    }
+
+    if ((drag.action === 'horizontal-rotate' || drag.action === 'vertical-rotate') && drag.targetPlane) {
+      const delta = (dx + dy) * 0.08
+      if (Math.abs(delta) >= 0.25) {
+        const currentRotation = allRotations[drag.targetPlane] || rotation
+        onRotationChange?.(drag.targetPlane, {
+          ...currentRotation,
+          roll: currentRotation.roll + delta,
+        })
+        drag.startX = event.clientX
+        drag.startY = event.clientY
+      }
+    }
+  }, [
+    allRotations,
+    onRotationChange,
+    onSlabThicknessChange,
+    rotation,
+    updateCrosshairFromPointer,
+  ])
+
+  const handleOverlayPointerUp = useCallback((event: React.PointerEvent<SVGSVGElement>) => {
+    overlayDragRef.current = null
     try {
       event.currentTarget.releasePointerCapture?.(event.pointerId)
     } catch {
@@ -545,29 +632,113 @@ const MPRViewerPanel: React.FC<MPRViewerPanelProps> = ({
           position: 'relative',
         }}
         onContextMenu={(e) => e.preventDefault()}
-        onPointerDown={handleCrosshairPointerDown}
-        onPointerMove={handleCrosshairPointerMove}
-        onPointerUp={handleCrosshairPointerUp}
-        onPointerCancel={handleCrosshairPointerUp}
       />
       {crossReferencePoint && (
-        <div className="mpr-crosshair-overlay" aria-hidden="true">
-          <div
-            className="mpr-crosshair-line horizontal"
-            style={{ top: `${crossReferencePoint[1]}px` }}
+        <svg
+          className="mpr-crosshair-overlay"
+          aria-hidden="true"
+          onPointerDown={handleOverlayPointerDown}
+          onPointerMove={handleOverlayPointerMove}
+          onPointerUp={handleOverlayPointerUp}
+          onPointerCancel={handleOverlayPointerUp}
+        >
+          <rect
+            className="mpr-crosshair-hit-area"
+            x="0"
+            y="0"
+            width="100%"
+            height="100%"
+            data-action="move"
           />
-          <div
-            className="mpr-crosshair-line vertical"
-            style={{ left: `${crossReferencePoint[0]}px` }}
+
+          <rect
+            className="mpr-crosshair-thickness-band horizontal"
+            x="0"
+            y={crossReferencePoint[1] - Math.max(4, slabThicknessMap[overlayAxes.horizontal.plane] * 0.6)}
+            width="100%"
+            height={Math.max(8, slabThicknessMap[overlayAxes.horizontal.plane] * 1.2)}
+            fill={overlayAxes.horizontal.color}
           />
-          <div
-            className="mpr-crosshair-handle"
-            style={{
-              left: `${crossReferencePoint[0]}px`,
-              top: `${crossReferencePoint[1]}px`,
-            }}
+          <rect
+            className="mpr-crosshair-thickness-band vertical"
+            x={crossReferencePoint[0] - Math.max(4, slabThicknessMap[overlayAxes.vertical.plane] * 0.6)}
+            y="0"
+            width={Math.max(8, slabThicknessMap[overlayAxes.vertical.plane] * 1.2)}
+            height="100%"
+            fill={overlayAxes.vertical.color}
           />
-        </div>
+
+          <line
+            className="mpr-crosshair-line"
+            x1="0"
+            y1={crossReferencePoint[1]}
+            x2="100%"
+            y2={crossReferencePoint[1]}
+            stroke={overlayAxes.horizontal.color}
+            data-axis="horizontal"
+            data-action="move"
+          />
+          <line
+            className="mpr-crosshair-line"
+            x1={crossReferencePoint[0]}
+            y1="0"
+            x2={crossReferencePoint[0]}
+            y2="100%"
+            stroke={overlayAxes.vertical.color}
+            data-axis="vertical"
+            data-action="move"
+          />
+
+          <rect
+            className="mpr-crosshair-thickness-handle horizontal"
+            x={crossReferencePoint[0] - 18}
+            y={crossReferencePoint[1] - Math.max(14, slabThicknessMap[overlayAxes.horizontal.plane] * 0.6 + 10)}
+            width="36"
+            height="8"
+            rx="2"
+            fill={overlayAxes.horizontal.color}
+            data-action="horizontal-thickness"
+            data-plane={overlayAxes.horizontal.plane}
+          />
+          <rect
+            className="mpr-crosshair-thickness-handle vertical"
+            x={crossReferencePoint[0] + Math.max(8, slabThicknessMap[overlayAxes.vertical.plane] * 0.6 + 6)}
+            y={crossReferencePoint[1] - 18}
+            width="8"
+            height="36"
+            rx="2"
+            fill={overlayAxes.vertical.color}
+            data-action="vertical-thickness"
+            data-plane={overlayAxes.vertical.plane}
+          />
+
+          <circle
+            className="mpr-crosshair-rotation-handle"
+            cx={crossReferencePoint[0] + 42}
+            cy={crossReferencePoint[1]}
+            r="7"
+            fill={overlayAxes.horizontal.color}
+            data-action="horizontal-rotate"
+            data-plane={overlayAxes.horizontal.plane}
+          />
+          <circle
+            className="mpr-crosshair-rotation-handle"
+            cx={crossReferencePoint[0]}
+            cy={crossReferencePoint[1] - 42}
+            r="7"
+            fill={overlayAxes.vertical.color}
+            data-action="vertical-rotate"
+            data-plane={overlayAxes.vertical.plane}
+          />
+
+          <circle
+            className="mpr-crosshair-center"
+            cx={crossReferencePoint[0]}
+            cy={crossReferencePoint[1]}
+            r="5"
+            data-action="move"
+          />
+        </svg>
       )}
       {images.length > 0 && (
         <div className="slice-info">{plane.charAt(0).toUpperCase() + plane.slice(1)}</div>
