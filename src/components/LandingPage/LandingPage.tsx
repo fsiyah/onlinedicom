@@ -269,7 +269,7 @@ function LandingPage() {
 
           <p className="hero-privacy-note">
             Your DICOM files stay on your device. Studies are opened client-side in your browser,
-            without server upload or storage. <a href="#privacy">Read privacy details.</a>
+            without server upload or storage. <a href="/privacy#privacy">Read privacy details.</a>
           </p>
 
           <dl className="hero-keywords">
@@ -375,7 +375,7 @@ function LandingPage() {
         </div>
         <nav aria-label="Footer navigation">
           <a href="/app">Open Viewer</a>
-          <a href="/privacy">Privacy Policy</a>
+          <a href="/privacy#privacy">Privacy Policy</a>
           <a href="mailto:hello@onlinedicom.com">Contact</a>
         </nav>
       </footer>
